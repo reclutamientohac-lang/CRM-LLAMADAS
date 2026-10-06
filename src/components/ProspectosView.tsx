@@ -1,3 +1,4 @@
+import { prospectDateKey } from '../prospectDate';
 import React, { useState, useMemo } from 'react';
 import {
   Search,
@@ -201,12 +202,14 @@ export const ProspectosView: React.FC = () => {
   const sortedProspectos = useMemo(() => {
     const list = [...filteredProspectos];
     list.sort((a, b) => {
-      const hasDateA = /^\d{4}-\d{2}-\d{2}$/.test((a.fechaRecepcion || '').trim());
-      const hasDateB = /^\d{4}-\d{2}-\d{2}$/.test((b.fechaRecepcion || '').trim());
+      const dateA = prospectDateKey(a.fechaRecepcion);
+      const hasDateA = !!dateA;
+      const dateB = prospectDateKey(b.fechaRecepcion);
+      const hasDateB = !!dateB;
       // Las fechas desconocidas quedan siempre al final, incluso al invertir el orden.
       if (hasDateA !== hasDateB) return hasDateA ? -1 : 1;
-      let valA: string = a[sortField] || '';
-      let valB: string = b[sortField] || '';
+      let valA: string = sortField === 'fechaRecepcion' ? dateA : a[sortField] || '';
+      let valB: string = sortField === 'fechaRecepcion' ? dateB : b[sortField] || '';
 
       if (sortField === 'temperatura') {
         const priority: Record<string, number> = { Hot: 3, Tibio: 2, Frío: 1 };

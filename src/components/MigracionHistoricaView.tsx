@@ -1,0 +1,39 @@
+import React,{useRef,useState,useEffect} from 'react';
+import JSZip from 'jszip';
+import {doc,runTransaction} from 'firebase/firestore';
+import {db} from '../firebase';
+import {useAuth} from '../context/AuthContext';
+import {prepareHistoricalMigration,PERSONAL_DATA_WARNING} from '../businessRules';
+import {validateMigration} from '../stage78/migrationCodec';
+import type {MigrationPackage,MigrationPreview} from '../stage78/migrationTypes';
+import {readBackup,readPaged,registerBackup,restore,audit,discardCheckpoint} from '../stage78/service';
+import {download,workbook,excelBytes,readable} from '../stage78/export';
+import {sha256} from '../stage78/backupCodec';
+import {Button,DataTable} from '../stage78/ui';
+import type {BackupRecord,Progress} from '../stage78/types';
+export function MigracionHistoricaView({disabled=false}:{disabled?:boolean}){
+ const {isAdmin,user}=useAuth();const [pkg,setPkg]=useState<MigrationPackage|null>(null),[preview,setPreview]=useState<MigrationPreview|null>(null),[current,setCurrent]=useState<Record<string,BackupRecord[]>>({}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState(''),[filename,setFilename]=useState(''),[hash,setHash]=useState(''),[progress,setProgress]=useState<Progress>({message:'',done:0,total:0}),[backupSaved,setBackupSaved]=useState(false),[downloaded,setDownloaded]=useState(false),[word,setWord]=useState(''),[result,setResult]=useState<any>(null);
+ const control=useRef<AbortController|null>(null);useEffect(()=>()=>control.current?.abort(),[]);
+ const run=async(fn:(signal:AbortSignal)=>Promise<void>)=>{if(busy||disabled)return;const ac=new AbortController();control.current=ac;setBusy(true);setError('');try{await fn(ac.signal);}catch(e){setError(ac.signal.aborted?'Operación cancelada. Consulta los lotes aplicados antes de reanudar.':String(e));}finally{setBusy(false);}};
+ const load=(input:File)=>run(async signal=>{
+  setPkg(null);setPreview(null);setBackupSaved(false);setDownloaded(false);setWord('');setResult(null);if(input.size>50*1024*1024)throw new Error('El archivo supera 50 MB.');
+  setProgress({message:'Validando paquete de migración…',done:0,total:1});let content:string;if(input.name.toLowerCase().endsWith('.zip')){const zip=await JSZip.loadAsync(input);const entry=zip.file('migracion_crm_preparada.json');if(!entry)throw new Error('El ZIP no contiene migracion_crm_preparada.json.');content=await entry.async('string');if(content.length>50*1024*1024)throw new Error('El JSON descomprimido supera 50 MB.');}else content=await input.text();signal.throwIfAborted();const parsed=validateMigration(JSON.parse(content));
+  const now:Record<string,BackupRecord[]>={};for(const name of ['prospectos','citas','retroalimentaciones','ventas','logCargas'])now[name]=await readPaged(name,signal,setProgress);
+  signal.throwIfAborted();setHash(await sha256(content));setFilename(input.name);setCurrent(now);setPkg(parsed);setPreview(prepareHistoricalMigration(parsed,now,user!.email!));setStatus('Paquete validado. Se conservarán todos los registros actuales.');
+ });
+ const safety=()=>run(async signal=>{if(!pkg)return;setBackupSaved(false);setDownloaded(false);const file=await readBackup(signal,setProgress,false);signal.throwIfAborted();await download(new Blob([JSON.stringify(file)],{type:'application/json'}),'seguridad_antes_migracion_'+new Date().toISOString().slice(0,10)+'.json');await registerBackup(file,new TextEncoder().encode(JSON.stringify(file)).length,'seguridad');signal.throwIfAborted();setCurrent(file.collections);setPreview(prepareHistoricalMigration(pkg,file.collections,user!.email!));setDownloaded(true);await discardCheckpoint();setStatus('Respaldo de seguridad descargado; vista previa actualizada. Verifica que conservaste el archivo.');});
+ const execute=()=>run(async signal=>{if(!pkg||!preview||!downloaded||!backupSaved||word!=='IMPORTAR')throw new Error('Completa el respaldo y escribe IMPORTAR.');setDownloaded(false);setBackupSaved(false);setWord('');await audit('INICIAR_MIGRACION',{idLote:pkg.idLote,archivo:filename,hash,pendientes:preview.pending,conflictos:preview.conflicts.length});
+  const outcome=await restore(preview.file,current,Object.keys(preview.file.collections),'missing',false,false,signal,setProgress,'MIGRACION: '+filename);setResult(outcome);
+  if(outcome.estado==='Completada'&&pkg.colecciones.prospectos.some(p=>p.tipoProspecto==='Inactivos')){const ref=doc(db,'settings','catalogs');await runTransaction(db,async tx=>{const snap=await tx.get(ref);const types=snap.data()?.tiposProspecto||[];if(!types.includes('Inactivos'))tx.set(ref,{tiposProspecto:[...types,'Inactivos']},{merge:true});});}
+  setResult(outcome);setStatus(`${outcome.estado}. Registros aplicados: ${outcome.aplicados}; pendientes: ${outcome.pendientes}.`);
+  await audit('MIGRACION_HISTORICA',{idLote:pkg.idLote,archivo:filename,hash,resultado:outcome});setPreview(null);
+ });
+ const exportRevision=()=>run(async()=>{if(!pkg||!preview)return;await download(new Blob([excelBytes(workbook({Conflictos:readable(preview.conflicts),Agenda:readable(pkg.pendientesAgenda||[]),Prospectos:readable(pkg.pendientesProspectos||[]),Incidencias:readable(pkg.incidencias||[])}))]),'revision_migracion.xlsx');await audit('EXPORTAR_REVISION_MIGRACION',{idLote:pkg.idLote});});
+ if(!isAdmin)return null;
+ return <div className="crm78-card"><h3>Importar migración histórica</h3><p>Incorpora prospectos, conteos históricos, citas, resultados, ventas y comisiones. Sólo crea registros faltantes: no modifica ni elimina datos existentes. Las coincidencias inequívocas se vinculan al prospecto actual. Las ambiguas quedan pendientes.</p><p className="crm78-note">{PERSONAL_DATA_WARNING}. Los conteos históricos no generan llamadas ficticias: se incluyen en Cohorte cuando se conoce la fecha de recepción; Actividad utiliza únicamente gestiones con fecha. Los prospectos sin fecha de recepción conservan ese dato vacío.</p>
+ <label>Paquete de migración (.zip o .json)<input aria-label="Paquete de migración histórica" type="file" accept=".zip,.json" disabled={busy||disabled} onChange={e=>{const f=e.target.files?.[0];if(f)void load(f);e.target.value='';}}/></label>
+ {error&&<p role="alert" className="crm78-error">{error}</p>}{status&&<p role="status">{status}</p>}{busy&&<><p>{progress.message}</p><progress max={progress.total||1} value={progress.done}/><Button onClick={()=>control.current?.abort()}>Cancelar en el siguiente lote</Button></>}
+ {preview&&pkg&&<><p>Lote: {pkg.idLote} · Vinculados a prospectos actuales: {preview.remapped} · Revisiones del archivo: {preview.pending} · Conflictos con la base: {preview.conflicts.length}</p><DataTable rows={preview.rows.map(r=>({Colección:r.coleccion,'Nuevos a incorporar':r.nuevos,'Registros actuales conservados':r.conservados}))}/>{!!preview.conflicts.length&&<DataTable rows={preview.conflicts.map(r=>({ID:r.id,Motivo:r.motivo}))}/>}<Button disabled={busy||disabled} onClick={exportRevision}>Descargar revisión de pendientes</Button><p>Los pendientes del archivo se conservan en el registro de cargas. No se crean citas sin prospecto. Los conflictos con la base permanecen en esta revisión y no se importan.</p><Button disabled={busy||disabled} onClick={safety}>Descargar respaldo de seguridad previo</Button>{downloaded&&<label><input type="checkbox" checked={backupSaved} onChange={e=>setBackupSaved(e.target.checked)}/>Verifiqué que el respaldo está guardado</label>}<p>Confirma la incorporación de {preview.rows.reduce((n,r)=>n+r.nuevos,0)} registros nuevos. Escribe IMPORTAR:</p><input aria-label="Confirmar importación histórica" value={word} disabled={busy||disabled} onChange={e=>setWord(e.target.value)}/><Button className="gold" disabled={busy||disabled||!downloaded||!backupSaved||word!=='IMPORTAR'} onClick={execute}>Importar registros históricos</Button></>}
+ {result&&<DataTable rows={result.lotes||[]}/>}
+ </div>;
+}

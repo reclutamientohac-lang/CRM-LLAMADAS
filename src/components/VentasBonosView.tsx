@@ -149,7 +149,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         }
 
         const bGen = calculateBonoGenerado(v.montoAprobado, v.porcentajeBono);
-        const bPag = calculateBonoPagable(v.estado, bGen);
+        const bPag = calculateBonoPagable(v.estado, bGen, v.estadoPagoHistorico);
 
         next[v.id] = {
           id: v.id,
@@ -256,7 +256,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const pctRes = parsePercentageInput(next.porcentajeBonoStr);
 
       const bGen = calculateBonoGenerado(montoRes.value, pctRes.ratio);
-      const bPag = calculateBonoPagable(next.estado, bGen);
+      const bPag = calculateBonoPagable(next.estado, bGen, next.original.estadoPagoHistorico);
 
       next.bonoGenerado = bGen;
       next.bonoPagable = bPag;
@@ -383,7 +383,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       Object.keys(next).forEach((id) => {
         const v = next[id].original;
         const bGen = calculateBonoGenerado(v.montoAprobado, v.porcentajeBono);
-        const bPag = calculateBonoPagable(v.estado, bGen);
+        const bPag = calculateBonoPagable(v.estado, bGen, v.estadoPagoHistorico);
 
         next[id] = {
           ...next[id],
@@ -956,6 +956,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                       {/* Bono Pagable */}
                       <td className="py-3 px-3.5 text-right font-mono font-black text-emerald-700">
                         {formatCurrency(r.bonoPagable)}
+                        {v.estadoPagoHistorico && <div className="text-xs font-bold">Comisión histórica: {v.estadoPagoHistorico}{v.estadoPagoHistorico==='Pagada' ? ` · ${formatCurrency(v.bonoPagadoHistorico||0)}` : ''}</div>}
                       </td>
 
                       {/* Observación */}

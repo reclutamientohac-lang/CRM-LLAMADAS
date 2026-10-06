@@ -1,3 +1,4 @@
+import { subscribeCRMRecords } from '../stage78/scopedSubscription';
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import {
   collection,
@@ -224,6 +225,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [logsCargas, setLogsCargas] = useState<LogCarga[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const assignedProspectIds = useMemo(() => prospectos.filter(p => !!userProfile?.telemarketingAgent && p.telemarketing === userProfile.telemarketingAgent).map(p => p.id).sort().join('|'), [prospectos, userProfile?.telemarketingAgent]);
 
   // Helper para registrar auditoría de accesos
   const registrarLogAcceso = async (
@@ -391,101 +393,45 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsub();
   }, [user, isAuthorized, isSupervisor]);
 
-  // 7. Escuchar historial de gestiones (llamadas)
+  // 7. Escuchar gestiones, con permisos por prospecto actualmente asignado.
   useEffect(() => {
-    if (!user || !isAuthorized) {
-      setGestiones([]);
-      return;
-    }
-    const gestionesColRef = collection(db, 'gestiones');
-    const unsub = onSnapshot(
-      gestionesColRef,
-      (snap) => {
-        const list: Gestion[] = [];
-        snap.forEach((docSnap) => {
-          list.push(docSnap.data() as Gestion);
-        });
-        list.sort((a, b) => (b.fechaHora || '').localeCompare(a.fechaHora || ''));
-        setGestiones(list);
-      },
-      (err) => {
-        console.error('Error escuchando gestiones:', err);
-      }
-    );
-    return () => unsub();
-  }, [user, isAuthorized]);
+    if (!user || !isAuthorized) { setGestiones([]); return; }
+    return subscribeCRMRecords('gestiones', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+      const list = rows as any[];
+      list.sort((a,b) => (b.fechaHora || '').localeCompare(a.fechaHora || ''));
+      setGestiones(list);
+    }, err => { console.error('Error cargando gestiones:', err); setError('Error al consultar gestiones.'); });
+  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
 
-  // 8. Escuchar citas
+  // 8. Escuchar citas, con permisos por prospecto actualmente asignado.
   useEffect(() => {
-    if (!user || !isAuthorized) {
-      setCitas([]);
-      return;
-    }
-    const citasColRef = collection(db, 'citas');
-    const unsub = onSnapshot(
-      citasColRef,
-      (snap) => {
-        const list: Cita[] = [];
-        snap.forEach((docSnap) => {
-          list.push(docSnap.data() as Cita);
-        });
-        list.sort((a, b) => (b.fechaCita || '').localeCompare(a.fechaCita || ''));
-        setCitas(list);
-      },
-      (err) => {
-        console.error('Error escuchando citas:', err);
-      }
-    );
-    return () => unsub();
-  }, [user, isAuthorized]);
+    if (!user || !isAuthorized) { setCitas([]); return; }
+    return subscribeCRMRecords('citas', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+      const list = rows as any[];
+      list.sort((a,b) => (b.fechaCita || '').localeCompare(a.fechaCita || ''));
+      setCitas(list);
+    }, err => { console.error('Error cargando citas:', err); setError('Error al consultar citas.'); });
+  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
 
-  // 9. Escuchar retroalimentaciones
+  // 9. Escuchar retroalimentaciones, con permisos por prospecto actualmente asignado.
   useEffect(() => {
-    if (!user || !isAuthorized) {
-      setRetroalimentaciones([]);
-      return;
-    }
-    const retroColRef = collection(db, 'retroalimentaciones');
-    const unsub = onSnapshot(
-      retroColRef,
-      (snap) => {
-        const list: Retroalimentacion[] = [];
-        snap.forEach((docSnap) => {
-          list.push(docSnap.data() as Retroalimentacion);
-        });
-        list.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-        setRetroalimentaciones(list);
-      },
-      (err) => {
-        console.error('Error escuchando retroalimentaciones:', err);
-      }
-    );
-    return () => unsub();
-  }, [user, isAuthorized]);
+    if (!user || !isAuthorized) { setRetroalimentaciones([]); return; }
+    return subscribeCRMRecords('retroalimentaciones', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+      const list = rows as any[];
+      list.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
+      setRetroalimentaciones(list);
+    }, err => { console.error('Error cargando retroalimentaciones:', err); setError('Error al consultar retroalimentaciones.'); });
+  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
 
-  // 10. Escuchar ventas
+  // 10. Escuchar ventas, con permisos por prospecto actualmente asignado.
   useEffect(() => {
-    if (!user || !isAuthorized) {
-      setVentas([]);
-      return;
-    }
-    const ventasColRef = collection(db, 'ventas');
-    const unsub = onSnapshot(
-      ventasColRef,
-      (snap) => {
-        const list: Venta[] = [];
-        snap.forEach((docSnap) => {
-          list.push(docSnap.data() as Venta);
-        });
-        list.sort((a, b) => (b.fechaReporte || '').localeCompare(a.fechaReporte || ''));
-        setVentas(list);
-      },
-      (err) => {
-        console.error('Error escuchando ventas:', err);
-      }
-    );
-    return () => unsub();
-  }, [user, isAuthorized]);
+    if (!user || !isAuthorized) { setVentas([]); return; }
+    return subscribeCRMRecords('ventas', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+      const list = rows as any[];
+      list.sort((a,b) => (b.fechaReporte || '').localeCompare(a.fechaReporte || ''));
+      setVentas(list);
+    }, err => { console.error('Error cargando ventas:', err); setError('Error al consultar ventas.'); });
+  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
 
   // 10.1 Escuchar logVentas (solo Supervisor y Administrador)
   useEffect(() => {
@@ -527,8 +473,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Supervisor y Administrador ven todos los prospectos
     // Telemarketing solo ve los asignados a su nombre de agente
     let q = query(prospectosColRef);
-    if (!isSupervisor && userProfile?.telemarketingAgent) {
-      q = query(prospectosColRef, where('telemarketing', '==', userProfile.telemarketingAgent));
+    if (!isSupervisor) {
+      q = query(prospectosColRef, where('telemarketing', '==', userProfile?.telemarketingAgent || '__SIN_VINCULO__'));
     }
 
     const unsub = onSnapshot(
@@ -711,7 +657,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modificadoPor: userIdentifier,
       };
 
-      await updateDoc(doc(db, 'prospectos', id), payload);
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'prospectos', id), payload);
+      const previous = prospectos.find(p => p.id === id);
+      if (updates.telemarketing !== undefined && previous?.telemarketing !== updates.telemarketing) {
+        batch.set(doc(collection(db, 'logAsignaciones')), {idProspecto: id, anterior: previous?.telemarketing || '', nueva: updates.telemarketing, usuario: userIdentifier, fecha: new Date().toISOString()});
+      }
+      await batch.commit();
       return { success: true };
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `prospectos/${id}`);
@@ -724,6 +676,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       await updateDoc(doc(db, 'prospectos', id), {
         archivado,
+        ...(archivado ? {archivadoEn: new Date().toISOString(), archivadoPor: user?.email || 'Sistema', motivoArchivo: prospectos.find(p => p.id === id)?.observacion || 'Archivado por el usuario'} : {}),
         modificadoEn: new Date().toISOString(),
         modificadoPor: user?.email || 'Sistema',
       });
@@ -741,20 +694,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     try {
-      const batch = writeBatch(db);
       const nowIso = new Date().toISOString();
       const userIdentifier = user?.email || 'Sistema';
-
-      ids.forEach((id) => {
-        const ref = doc(db, 'prospectos', id);
-        batch.update(ref, {
-          telemarketing: newAgent || SIN_ASIGNAR,
-          modificadoEn: nowIso,
-          modificadoPor: userIdentifier,
-        });
-      });
-
-      await batch.commit();
+      for (let offset=0; offset<ids.length; offset+=199) {
+        const batch = writeBatch(db);
+        for (const id of ids.slice(offset,offset+199)) {
+          batch.update(doc(db, 'prospectos', id), {telemarketing:newAgent || SIN_ASIGNAR,modificadoEn:nowIso,modificadoPor:userIdentifier});
+          batch.set(doc(collection(db,'logAsignaciones')), {idProspecto:id,anterior:prospectos.find(p=>p.id===id)?.telemarketing || '',nueva:newAgent || SIN_ASIGNAR,usuario:userIdentifier,fecha:nowIso});
+        }
+        await batch.commit();
+      }
       return { success: true };
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, 'prospectos');

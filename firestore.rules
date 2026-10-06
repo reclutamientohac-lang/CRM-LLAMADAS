@@ -47,12 +47,41 @@ service cloud.firestore {
         getDocAutorizado().telemarketingVinculada : '';
     }
 
+    function esPropietarioAsignado(data) {
+      return esAutorizado() && data.idProspecto is string &&
+        get(/databases/$(database)/documents/prospectos/$(data.idProspecto)).data.telemarketing == telemarketingActual();
+    }
+
+    match /respaldos/{id} { allow read, write: if esAdmin(); }
+    match /logRestauraciones/{id} { allow read, write: if esAdmin(); }
+    match /reportesGuardados/{id} {
+      allow read: if esSupervisor() || (esAutorizado() && (resource.data.usuario == userEmail() || resource.data.compartido == true));
+      allow create: if esAutorizado() && request.resource.data.usuario == userEmail() && (request.resource.data.compartido == false || esAdmin());
+      allow update: if esAdmin() || (esAutorizado() && resource.data.usuario == userEmail() && request.resource.data.usuario == userEmail() && request.resource.data.compartido == false);
+      allow delete: if esAdmin() || (esAutorizado() && resource.data.usuario == userEmail());
+    }
+    match /auditoria/{id} {
+      allow read: if esSupervisor();
+      allow create: if esAutorizado() && request.resource.data.usuario == userEmail();
+      allow update, delete: if esAdmin();
+    }
+    match /logAsignaciones/{id} {
+      allow read: if esSupervisor();
+      allow create: if esAutorizado() && request.resource.data.usuario == userEmail() && (esSupervisor() || esPropietarioAsignado(request.resource.data));
+      allow update, delete: if esAdmin();
+    }
+    // Extensión explícita del registro. Solo colecciones nuevas; las existentes conservan sus reglas.
+    match /{collectionName}/{id} {
+      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones']);
+    }
+
     // Colección: usuariosAutorizados
     match /usuariosAutorizados/{emailDoc} {
       allow get: if esAdmin() || (isEmailVerified() && userEmail() == emailDoc.lower());
       allow list: if esAdmin();
-      allow create, delete: if esAdmin();
-      allow update: if esAdmin() || (
+      allow create: if esAdmin();
+      allow delete: if esAdmin() && emailDoc.lower() != 'reclutamientohac@gmail.com';
+      allow update: if (esAdmin() && (emailDoc.lower() != 'reclutamientohac@gmail.com' || request.resource.data.activo == true)) || (
         isEmailVerified() &&
         userEmail() == emailDoc.lower() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcceso'])
@@ -76,7 +105,7 @@ service cloud.firestore {
     // Colección: settings
     match /settings/{settingId} {
       allow read: if esAutorizado();
-      allow write: if esSupervisor();
+      allow write: if (settingId in ['backupParameters','backupRegistry']) ? esAdmin() : esSupervisor();
     }
 
     // Colección: logCargas
@@ -86,28 +115,31 @@ service cloud.firestore {
 
     // Colección: gestiones
     match /gestiones/{gestionId} {
-      allow read: if esAutorizado();
-      allow create, update: if esAutorizado();
+      allow read: if esSupervisor() || esPropietarioAsignado(resource.data);
+      allow create: if esSupervisor() || esPropietarioAsignado(request.resource.data);
+      allow update: if esSupervisor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data));
       allow delete: if esSupervisor();
     }
 
     // Colección: citas
     match /citas/{citaId} {
-      allow read: if esAutorizado();
-      allow create, update: if esAutorizado();
+      allow read: if esSupervisor() || esPropietarioAsignado(resource.data);
+      allow create: if esSupervisor() || esPropietarioAsignado(request.resource.data);
+      allow update: if esSupervisor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data));
       allow delete: if esSupervisor();
     }
 
     // Colección: retroalimentaciones
     match /retroalimentaciones/{retroId} {
-      allow read, create: if esAutorizado();
+      allow read: if esSupervisor() || esPropietarioAsignado(resource.data);
+      allow create: if esSupervisor() || esPropietarioAsignado(request.resource.data);
       allow update, delete: if esSupervisor();
     }
 
     // Colección: ventas
     match /ventas/{ventaId} {
       allow read: if esSupervisor() || (
-        esAutorizado() && resource.data.telemarketing == telemarketingActual()
+        esPropietarioAsignado(resource.data)
       );
       allow create: if esAutorizado();
       allow update: if esSupervisor();
@@ -118,7 +150,7 @@ service cloud.firestore {
     match /logVentas/{logId} {
       allow read: if esSupervisor();
       allow create: if esSupervisor();
-      allow update, delete: if false;
+      allow update, delete: if esAdmin();
     }
 
     // Colección: prospectos
@@ -142,7 +174,7 @@ service cloud.firestore {
         resource.data.telemarketing == 'SIN ASIGNAR'
       );
 
-      allow delete: if esSupervisor();
+      allow delete: if esAdmin();
     }
 
     // Colección legacy: users

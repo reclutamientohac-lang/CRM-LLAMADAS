@@ -1,0 +1,11 @@
+# Verificación de la entrega
+
+TypeScript sin errores y compilación de producción completada con Vite. Se mantienen las advertencias de tamaño de paquetes y compatibilidad futura del cargador de configuración de Vite; no bloquean el build. No se hizo el pulido final solicitado para una etapa posterior.
+
+Ocho pruebas de cálculo y archivos pasaron: normalización de propietarios, aislamiento de telemarketing, Actividad y Cohorte, atribución y porcentajes, tipos nativos de Firestore y hash, recuperación de faltantes, integridad y volumen. La prueba de 30.000 prospectos y 100.000 gestiones tardó 221 ms en la última ejecución de cálculo en este entorno; no es una garantía de tiempo en cualquier dispositivo ni una prueba de lectura remota de ese volumen dentro de Spark.
+
+Nueve pruebas en Firestore Emulator pasaron: acceso exclusivo del administrador a respaldos/restauraciones, consultas por asignación actual, reportes privados y compartidos, protección del administrador, auditoría y configuración, recuperación atómica de un ejemplo, motor real de faltantes sin sobrescribir, rechazo de cambios simultáneos y cancelación después de un lote. En la prueba de cancelación quedaron 200 registros aplicados y uno pendiente, conforme al resultado registrado. No se usó la base de datos real.
+
+La prueba de interfaz en Chromium utilizó datos de demostración y acceso simulado aislado. Abrió reportes y Constructor, generó un Excel con Resumen, Detalle, Filtros y Matriz, encontró un expediente con el teléfono escrito “(213) 555-0101”, descargó un respaldo JSON con 17 colecciones y 30 prospectos, y validó de nuevo su hash. El recorrido no produjo errores de JavaScript. Se verificaron 160 celdas de Resumen con formatos de número, dinero y porcentaje. Se inspeccionó la pantalla de reportes en escritorio y la pantalla de respaldo en un viewport de 390 píxeles.
+
+La autenticación real de Google, la publicación de reglas e índices y la conexión Spark en el proyecto definitivo requieren verificación en ese proyecto. No se ejecutó despliegue, migración, borrado ni restauración sobre datos reales. La guía explica la base con nombre exportada de AI Studio, las cuotas de Spark, el registro de colecciones y las limitaciones de coherencia de una lectura por páginas.

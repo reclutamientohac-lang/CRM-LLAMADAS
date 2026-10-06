@@ -1,3 +1,7 @@
+import './stage78/style.css';
+import { ReportesView } from './components/ReportesView';
+import { RespaldoView, BackupBanner } from './components/RespaldoView';
+import { ConsultaGlobalView } from './components/ConsultaGlobalView';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CRMProvider, useCRM } from './context/CRMContext';
@@ -133,6 +137,10 @@ function MainLayout() {
         return 'Control de Accesos';
       case 'ventas':
         return 'Ventas / Bonos';
+      case 'individual':
+        return 'Reporte individual';
+      case 'consulta':
+        return 'Consulta Global';
       case 'reportes':
         return 'Reportes';
       case 'respaldo':
@@ -175,7 +183,7 @@ function MainLayout() {
                   {getTabTitle(currentTab)}
                 </h2>
                 <span className="hidden sm:inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#B8922A]/15 text-[#9a781f] border border-[#B8922A]/30">
-                  Etapa 6 - Ventas, Bonos & Reportes
+                  Etapas 7 y 8 · Reportes y Respaldo
                 </span>
               </div>
             </div>
@@ -216,6 +224,7 @@ function MainLayout() {
 
         {/* Citas de Hoy Alert Banner & Browser Notifications */}
         <CitasHoyBanner onSelectProspecto={(p) => setDrawerProspecto(p)} />
+        <BackupBanner onNavigate={() => setCurrentTab('respaldo')} />
 
         {/* Dynamic View Body */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
@@ -246,12 +255,15 @@ function MainLayout() {
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
             />
           )}
-          {currentTab === 'reportes' && (
+          {currentTab === 'individual' && (
             <ReporteIndividualView
               onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
             />
           )}
+          {currentTab === 'reportes' && <ReportesView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'consulta' && isSupervisor && <ConsultaGlobalView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'accesos' && <AccesosView />}
           {currentTab === 'configuracion' && <ConfiguracionView />}
           {currentTab !== 'trabajo' &&
@@ -261,6 +273,9 @@ function MainLayout() {
             currentTab !== 'dashboard' &&
             currentTab !== 'ventas' &&
             currentTab !== 'reportes' &&
+            currentTab !== 'individual' &&
+            currentTab !== 'respaldo' &&
+            currentTab !== 'consulta' &&
             currentTab !== 'accesos' &&
             currentTab !== 'configuracion' && (
               <ProximamenteView

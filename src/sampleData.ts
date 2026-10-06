@@ -15,7 +15,7 @@ export function generateSampleProspectos(adminEmail: string): Prospecto[] {
     {
       nombre: 'María Elena Morales',
       telefono: '2135550101',
-      propietario: 'Roberto Gómez',
+      propietario: 'Maria Perez',
       ciudadZona: 'Los Ángeles (East LA)',
       telemarketing: 'GERAL',
       tipoProspecto: 'Referido',
@@ -28,7 +28,7 @@ export function generateSampleProspectos(adminEmail: string): Prospecto[] {
     {
       nombre: 'Jorge Luis Santana',
       telefono: '3235550102',
-      propietario: 'Roberto Gómez',
+      propietario: 'María Pérez ',
       ciudadZona: 'Boyle Heights',
       telemarketing: 'GERAL',
       tipoProspecto: 'Personal',

@@ -34,6 +34,7 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   activeInStage1: boolean;
   supervisorOnly?: boolean;
+  adminOnly?: boolean;
   badge?: number | string;
 }
 
@@ -46,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   seguimientosCount = 0,
   citasCount = 0,
 }) => {
-  const { userProfile, isSupervisor, telemarketingAgent, logout } = useAuth();
+  const { userProfile, isSupervisor, isAdmin, telemarketingAgent, logout } = useAuth();
 
   const navItems: NavItem[] = [
     {
@@ -90,16 +91,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       supervisorOnly: true,
     },
     {
-      id: 'reportes',
+      id: 'individual',
       label: 'Reporte individual',
       icon: BarChart3,
       activeInStage1: true,
     },
     {
+      id: 'reportes', label: 'Reportes', icon: BarChart3, activeInStage1: true,
+    },
+    {
+      id: 'consulta', label: 'Consulta Global', icon: Users, activeInStage1: true, supervisorOnly: true,
+    },
+    {
       id: 'respaldo',
       label: 'Respaldo',
       icon: DatabaseBackup,
-      activeInStage1: false,
+      activeInStage1: true,
+      adminOnly: true,
     },
     {
       id: 'configuracion',
@@ -179,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         {navItems.map((item) => {
           // If supervisorOnly and not supervisor, hide or disable
-          if (item.supervisorOnly && !isSupervisor) {
+          if (item.adminOnly && !isAdmin || item.supervisorOnly && !isSupervisor) {
             return null;
           }
 
@@ -239,7 +247,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Footer Area */}
       <div className="p-4 border-t border-white/10 space-y-2">
         <div className="text-[11px] text-slate-400 px-2 flex justify-between items-center">
-          <span>Etapa 3 / Sistema Activo</span>
+          <span>Etapas 7 y 8 / Sistema Activo</span>
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
         </div>
         <button

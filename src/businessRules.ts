@@ -1666,3 +1666,80 @@ export function calculateReporteIndividual({
   };
 }
 
+
+// ETAPAS 7 y 8. Las definiciones de cálculo y atribución viven aquí.
+export const BACKUP_COLLECTIONS = ['prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','usuariosAutorizados','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','respaldos','logRestauraciones','auditoria','logAsignaciones'] as const;
+export const PERSONAL_DATA_WARNING = 'Este archivo contiene datos personales de prospectos. Guárdalo en un lugar seguro y no lo compartas por canales públicos';
+export function normalizeOwner(value: string): string { return (value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toLowerCase() || 'sin propietario'; }
+export function ownerLabel(value:string):string { return (value || '').trim().replace(/\s+/g,' ') || 'Sin propietario'; }
+export const REPORT_DIMENSIONS:Record<import('./stage78/types').Dimension,string> = { propietario:'Propietario',fecha:'Fecha',telemarketing:'Telemarketing',tipoProspecto:'Tipo de prospecto',origen:'Origen',ciudadZona:'Ciudad / zona',estado:'Estado',temperatura:'Temperatura',idLote:'Lote',estadoCita:'Estado de cita' };
+export const REPORT_MEASURES:Record<import('./stage78/types').Measure,string> = {prospectos:'Prospectos',asignados:'Asignados',sinAsignar:'Sin asignar',contactados:'Prospectos contactados',contactos:'Contactos (llamadas)',efectivos:'Contactos efectivos',citas:'Citas agendadas',realizadas:'Citas realizadas',pendientes:'Pendientes de resultado',ventas:'Ventas no canceladas',monto:'Monto aprobado',bonoGenerado:'Bono generado',bonoPagable:'Bono pagable',pctContactados:'% contactados',pctEfectividad:'% efectividad',pctCita:'% cita',pctVenta:'% venta'};
+export const MONEY_MEASURES = ['monto','bonoGenerado','bonoPagable'];
+export function emptyReportMetrics():Record<import('./stage78/types').Measure,number> { return Object.fromEntries(Object.keys(REPORT_MEASURES).map(k=>[k,0])) as any; }
+export function reportRatios(m:ReturnType<typeof emptyReportMetrics>) { const pct=(a:number,b:number)=>b ? a/b : 0; m.pctContactados=pct(m.contactados,m.prospectos);m.pctEfectividad=pct(m.efectivos,m.contactos);m.pctCita=pct(m.citas,m.efectivos);m.pctVenta=pct(m.ventas,m.citas);return m; }
+const reportDateFormatter = new Intl.DateTimeFormat('en-CA',{timeZone:TIMEZONE_LA,year:'numeric',month:'2-digit',day:'2-digit'});
+export function reportDateLA(value:string):string {if (!value) return ''; if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value; const date = new Date(value); if(!Number.isFinite(date.getTime()))return getDateInLA(value); const parts=reportDateFormatter.formatToParts(date); const p=(type:string)=>parts.find(x=>x.type===type)?.value;return `${p('year')}-${p('month')}-${p('day')}`;}
+export function reportDateGroup(value:string,periodo:string):string { const date=reportDateLA(value);if(!date)return 'Sin fecha';if(periodo==='mes')return date.slice(0,7);if(periodo==='semana'){const d=new Date(date+'T12:00:00Z'); return addDaysToDateStr(date,-((d.getUTCDay()+6)%7));}return date; }
+export function calculateReport(data:import('./stage78/types').ReportData,filters:import('./stage78/types').ReportFilters,dimensions:import('./stage78/types').Dimension[],scope?:string):import('./stage78/types').ReportResult {
+  type Row=import('./stage78/types').ReportRow;
+  const dateCache=new Map<string,string>();
+  const inRange=(v:string)=>{let d=dateCache.get(v);if(d===undefined){d=reportDateLA(v);dateCache.set(v,d);}return !!d&&d>=filters.desde&&d<=filters.hasta;};
+  const ownerNames=new Map<string,string>();
+  const selected=data.prospectos.filter(p=>{
+    if(scope!==undefined&&(!scope||p.telemarketing!==scope))return false;
+    if(p.archivado)return false;
+    if(filters.enfoque==='Cohorte'&&!inRange(p.fechaRecepcion))return false;
+    return Object.entries(filters.values).every(([k,vs])=>!vs?.length||vs.some(v=>k==='propietario'?normalizeOwner(v)===normalizeOwner(p.propietario):v===(p as any)[k]));
+  });
+  const pMap=new Map(selected.map(p=>[p.id,p]));
+  selected.forEach(p=>{const k=normalizeOwner(p.propietario);if(!ownerNames.has(k))ownerNames.set(k,ownerLabel(p.propietario));});
+  const cohort=filters.enfoque==='Cohorte';
+  // Actividad aplica a cada entidad su fecha real. La base elegida define población y agrupación;
+  // para una base de evento también limita los prospectos a aquellos con ese evento en el período.
+  let gs=data.gestiones.filter(g=>pMap.has(g.idProspecto)&&(cohort||inRange(g.fechaHora)));
+  let cs=data.citas.filter(c=>pMap.has(c.idProspecto)&&(cohort||inRange(filters.base==='fechaCreacion'?c.fechaCreacion:c.fechaCita)));
+  let vs=data.ventas.filter(v=>pMap.has(v.idProspecto)&&(cohort||inRange(v.fechaReporte)));
+  const baseEvents=filters.base==='fechaHora'?gs:filters.base==='fechaCreacion'||filters.base==='fechaCita'?cs:null;
+  const activeIds=baseEvents&&!cohort?new Set(baseEvents.map(r=>r.idProspecto)):new Set(selected.map(p=>p.id));
+  const ps=selected.filter(p=>activeIds.has(p.id)&&(cohort||!(['fechaRecepcion','fechaProspeccion'].includes(filters.base))||inRange((p as any)[filters.base])));
+  gs=gs.filter(g=>activeIds.has(g.idProspecto));cs=cs.filter(c=>activeIds.has(c.idProspecto));vs=vs.filter(v=>activeIds.has(v.idProspecto));
+  const rows=new Map<string,Row>();
+  const create=(key:string,groups:string[]):Row=>({key,groups,metrics:emptyReportMetrics(),ids:{prospectos:[],gestiones:[],citas:[],ventas:[]}});
+  const total=create('TOTAL',['Total']);
+  const firstDates=new Map<string,string>();
+  if(baseEvents)baseEvents.forEach(r=>{const dt=(r as any)[filters.base];if(!firstDates.has(r.idProspecto)||dt<firstDates.get(r.idProspecto)!)firstDates.set(r.idProspecto,dt);});
+  const rowFor=(p:Prospecto,event?:any,kind?:string)=>{
+    const groups=dimensions.map(d=>{
+      if(d==='fecha')return reportDateGroup(['fechaRecepcion','fechaProspeccion'].includes(filters.base)?(p as any)[filters.base]:event?.[filters.base]||firstDates.get(p.id)||event?.fechaHora||event?.fechaCita||event?.fechaReporte||p.fechaRecepcion,filters.periodo);
+      if(d==='propietario')return ownerNames.get(normalizeOwner(p.propietario))!;
+      if(d==='estadoCita')return kind==='citas'?event.estadoCita:'Sin cita';
+      return String((p as any)[d]||'Sin dato');
+    });
+    const key=JSON.stringify(groups);if(!rows.has(key))rows.set(key,create(key,groups));return rows.get(key)!;
+  };
+  const contacted=new Map<string,Set<string>>();
+  const addContacted=(r:Row,id:string)=>{let s=contacted.get(r.key);if(!s){s=new Set();contacted.set(r.key,s);}s.add(id);r.metrics.contactados=s.size;};
+  ps.forEach(p=>{const r=rowFor(p);for(const t of [r,total]){t.metrics.prospectos++;t.metrics[p.telemarketing&&p.telemarketing!==SIN_ASIGNAR?'asignados':'sinAsignar']++;t.ids.prospectos.push(p.id);}});
+  gs.forEach(g=>{const r=rowFor(pMap.get(g.idProspecto)!,g,'gestiones');for(const t of [r,total]){t.metrics.contactos++;if(g.efectivo==='Sí')t.metrics.efectivos++;t.ids.gestiones.push(g.id);addContacted(t,g.idProspecto);}});
+  const resultIds=new Set(data.retroalimentaciones.map(r=>r.idCita));
+  cs.forEach(c=>{const r=rowFor(pMap.get(c.idProspecto)!,c,'citas');for(const t of [r,total]){t.metrics.citas++;if(c.estadoCita==='Realizada')t.metrics.realizadas++;if(c.estadoCita!=='Cancelada'&&!resultIds.has(c.id))t.metrics.pendientes++;t.ids.citas.push(c.id);}});
+  vs.forEach(v=>{if(v.estado==='Cancelada')return;const r=rowFor(pMap.get(v.idProspecto)!,v,'ventas');for(const t of [r,total]){t.metrics.ventas++;if(v.estado==='Aprobada')t.metrics.monto+=v.montoAprobado||0;t.metrics.bonoGenerado+=v.bonoGenerado||0;t.metrics.bonoPagable+=v.bonoPagable||0;t.ids.ventas.push(v.id);}});
+  for(const r of [...rows.values(),total])reportRatios(r.metrics);
+  const relevantIds=new Set([...ps.map(p=>p.id),...gs.map(g=>g.idProspecto),...cs.map(c=>c.idProspecto),...vs.map(v=>v.idProspecto)]);
+  return {rows:[...rows.values()],total,data:{prospectos:selected.filter(p=>relevantIds.has(p.id)),gestiones:gs,citas:cs,ventas:vs,retroalimentaciones:data.retroalimentaciones.filter(r=>activeIds.has(r.idProspecto))}};
+}
+export function backupAge(fecha?:string,warning=7,danger=15){const days=fecha?Math.max(0,getDaysDifference(getDateInLA(fecha))):null;return {days,level:days===null?'warning':days>danger?'danger':days>warning?'warning':'ok'};}
+export function compareBackup(backup:Record<string,import('./stage78/types').BackupRecord[]>,current:Record<string,import('./stage78/types').BackupRecord[]>){return Object.entries(backup).map(([name,records])=>{const now=new Map((current[name]||[]).map(r=>[r.id,r]));const old=new Set(records.map(r=>r.id));return {coleccion:name,respaldo:records.length,actual:now.size,nuevos:records.filter(r=>!now.has(r.id)).length,diferentes:records.filter(r=>now.has(r.id)&&canonicalBackupRecord(r)!==canonicalBackupRecord(now.get(r.id)!)).length,soloActual:[...now.keys()].filter(id=>!old.has(id)).length};});}
+export function canonicalBackupRecord(value:any):string {const sort=(v:any):any=>Array.isArray(v)?v.map(sort):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,sort(v[k])])):v;return JSON.stringify(sort(value));}
+export function ownerSimilarity(a:string,b:string):boolean {a=normalizeOwner(a);b=normalizeOwner(b);if(a===b)return true;if(a==='sin propietario'||b==='sin propietario')return false;const aw=a.split(' '),bw=b.split(' ');return aw.length>1&&bw.length>1&&aw[0]===bw[0]&&(aw.at(-1)===bw.at(-1)||a.includes(b)||b.includes(a));}
+export function inspectCRMIntegrity(data:import('./stage78/types').ReportData,agents:string[]) {
+  const issues:Array<{problema:string;coleccion:string;id:string;idProspecto:string}>=[];const ps=new Map(data.prospectos.map(p=>[p.id,p]));const cs=new Map(data.citas.map(c=>[c.id,c]));
+  const add=(problema:string,coleccion:string,r:any)=>issues.push({problema,coleccion,id:r.id,idProspecto:r.idProspecto||r.id});
+  for(const g of data.gestiones)if(!ps.has(g.idProspecto))add('Gestión sin prospecto','gestiones',g);
+  for(const c of data.citas){if(!ps.has(c.idProspecto))add('Cita sin prospecto','citas',c);const date=new Date(c.fechaCita+'T12:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(c.fechaCita)||!Number.isFinite(date.getTime())||date.toISOString().slice(0,10)!==c.fechaCita)add('Cita con fecha inválida','citas',c);}
+  for(const v of data.ventas){if(!cs.has(v.idCita))add('Venta sin cita','ventas',v);if(v.estado==='Aprobada'&&(!(v.montoAprobado!>0)||!(v.porcentajeBono!>0)))add('Venta aprobada sin monto o porcentaje','ventas',v);}
+  const phones=new Map<string,Prospecto[]>();for(const p of data.prospectos){const ph=normalizePhone(p.telefono);if(ph){const list=phones.get(ph)||[];list.push(p);phones.set(ph,list);}if(p.telemarketing&&p.telemarketing!==SIN_ASIGNAR&&!agents.includes(p.telemarketing))add('Telemarketing inexistente','prospectos',p);if(!p.archivado&&(!p.telemarketing||p.telemarketing===SIN_ASIGNAR)&&getDaysDifference(p.fechaRecepcion)>7)add('Sin asignar por más de 7 días','prospectos',p);}
+  for(const list of phones.values())if(list.length>1)list.forEach(p=>add('Teléfono duplicado','prospectos',p));return issues;
+}
+
+export function formatExportDateTimeLA(value:string|Date):string {const d=new Date(value);if(!Number.isFinite(d.getTime()))return String(value);const parts=new Intl.DateTimeFormat('en-US',{timeZone:TIMEZONE_LA,day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}).formatToParts(d);const get=(k:string)=>parts.find(p=>p.type===k)?.value;return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')} ${get('dayPeriod')}`;}

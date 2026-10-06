@@ -230,6 +230,8 @@ export type TabId =
   | 'accesos'
   | 'dashboard'
   | 'ventas'
+  | 'individual'
+  | 'consulta'
   | 'reportes'
   | 'respaldo'
   | 'configuracion';

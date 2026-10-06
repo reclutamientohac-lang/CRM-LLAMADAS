@@ -1417,8 +1417,10 @@ export function calculateBonoGenerado(
 
 export function calculateBonoPagable(
   estado: EstadoVenta,
-  bonoGenerado: number | null
+  bonoGenerado: number | null,
+  estadoPagoHistorico?: string
 ): number {
+  if (estadoPagoHistorico === 'Pagada') return 0;
   if (estado === 'Aprobada' && bonoGenerado !== null && !isNaN(bonoGenerado)) {
     return bonoGenerado;
   }
@@ -1721,6 +1723,7 @@ export function calculateReport(data:import('./stage78/types').ReportData,filter
   const addContacted=(r:Row,id:string)=>{let s=contacted.get(r.key);if(!s){s=new Set();contacted.set(r.key,s);}s.add(id);r.metrics.contactados=s.size;};
   ps.forEach(p=>{const r=rowFor(p);for(const t of [r,total]){t.metrics.prospectos++;t.metrics[p.telemarketing&&p.telemarketing!==SIN_ASIGNAR?'asignados':'sinAsignar']++;t.ids.prospectos.push(p.id);}});
   gs.forEach(g=>{const r=rowFor(pMap.get(g.idProspecto)!,g,'gestiones');for(const t of [r,total]){t.metrics.contactos++;if(g.efectivo==='Sí')t.metrics.efectivos++;t.ids.gestiones.push(g.id);addContacted(t,g.idProspecto);}});
+  if(cohort)ps.forEach(p=>{const historical=p.intentosHistoricos||0;if(!historical)return;const r=rowFor(p);for(const t of [r,total]){t.metrics.contactos+=historical;t.metrics.efectivos+=p.contactosEfectivosHistoricos||0;addContacted(t,p.id);}});
   const resultIds=new Set(data.retroalimentaciones.map(r=>r.idCita));
   cs.forEach(c=>{const r=rowFor(pMap.get(c.idProspecto)!,c,'citas');for(const t of [r,total]){t.metrics.citas++;if(c.estadoCita==='Realizada')t.metrics.realizadas++;if(c.estadoCita!=='Cancelada'&&!resultIds.has(c.id))t.metrics.pendientes++;t.ids.citas.push(c.id);}});
   vs.forEach(v=>{if(v.estado==='Cancelada')return;const r=rowFor(pMap.get(v.idProspecto)!,v,'ventas');for(const t of [r,total]){t.metrics.ventas++;if(v.estado==='Aprobada')t.metrics.monto+=v.montoAprobado||0;t.metrics.bonoGenerado+=v.bonoGenerado||0;t.metrics.bonoPagable+=v.bonoPagable||0;t.ids.ventas.push(v.id);}});
@@ -1743,3 +1746,39 @@ export function inspectCRMIntegrity(data:import('./stage78/types').ReportData,ag
 }
 
 export function formatExportDateTimeLA(value:string|Date):string {const d=new Date(value);if(!Number.isFinite(d.getTime()))return String(value);const parts=new Intl.DateTimeFormat('en-US',{timeZone:TIMEZONE_LA,day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}).formatToParts(d);const get=(k:string)=>parts.find(p=>p.type===k)?.value;return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')} ${get('dayPeriod')}`;}
+
+/** Importación histórica: sólo altas; no sobrescribir registros actuales ni inventar gestiones. */
+export function prepareHistoricalMigration(pkg:import('./stage78/migrationTypes').MigrationPackage,current:import('./stage78/migrationTypes').CurrentMigrationData,usuario:string):import('./stage78/migrationTypes').MigrationPreview {
+ const collections:Record<string,import('./stage78/types').BackupRecord[]>={prospectos:[],citas:[],retroalimentaciones:[],ventas:[],logCargas:[]};
+ const conflicts:{id:string;motivo:string}[]=[];const mapping=new Map<string,string>();const blocked=new Set<string>();let remapped=0;
+ const normalizedPhone=(v:any)=>{const s=String(v||'').replace(/\D/g,'');return s.length===11&&s.startsWith('1')?s.slice(1):s.length===10?s:'';};
+ const existing=new Map((current.prospectos||[]).map(r=>[r.id,r.data]));const byPhone=new Map<string,import('./stage78/types').BackupRecord[]>();
+ for(const r of current.prospectos||[]){for(const raw of [r.data.telefono,...(r.data.telefonosHistoricos||[])]){const ph=normalizedPhone(raw);if(ph){const list=byPhone.get(ph)||[];if(!list.some(x=>x.id===r.id))list.push(r);byPhone.set(ph,list);}}}
+ const add=(name:string,id:string,data:Record<string,any>)=>collections[name].push({id,data:{...data,id,idLote:pkg.idLote,actividadHistorica:true,migradoPor:usuario}});
+ for(const p of pkg.colecciones.prospectos){
+  if(existing.has(p.id)){if(normalizeOwner(existing.get(p.id)!.nombre)!==normalizeOwner(p.nombre)){blocked.add(p.id);conflicts.push({id:p.id,motivo:'El ID actual pertenece a otro nombre.'});}else mapping.set(p.id,p.id);continue;}
+  const matches=new Map<string,import('./stage78/types').BackupRecord>();for(const raw of [p.telefono,...(p.telefonosHistoricos||[])])for(const r of byPhone.get(normalizedPhone(raw))||[])matches.set(r.id,r);
+  if(matches.size){const same=[...matches.values()].filter(r=>normalizeOwner(r.data.nombre)===normalizeOwner(p.nombre));if(matches.size===1&&same.length===1){mapping.set(p.id,same[0].id);remapped++;}else{blocked.add(p.id);conflicts.push({id:p.id,motivo:'Teléfono compartido con la base actual; verificar identidad.'});}continue;}
+  mapping.set(p.id,p.id);add('prospectos',p.id,{...p,idCita:null,intentosHistoricos:p.intentos||0,contactosEfectivosHistoricos:p.contactosEfectivos||0,fechaRecepcionDesconocida:!p.fechaRecepcion});
+ }
+ const currentCitas=new Map((current.citas||[]).map(r=>[r.id,r.data]));const citaMap=new Map<string,string>();
+ for(const c of pkg.colecciones.citas||[]){const pid=mapping.get(c.idProspecto);if(!pid||blocked.has(c.idProspecto)){conflicts.push({id:c.id,motivo:'Prospecto pendiente de identificación.'});continue;}
+  if(currentCitas.has(c.id)){if(currentCitas.get(c.id)!.idProspecto!==pid){conflicts.push({id:c.id,motivo:'La cita actual pertenece a otro prospecto.'});continue;}citaMap.set(c.id,c.id);continue;}
+  const events=(current.citas||[]).filter(r=>r.data.idProspecto===pid&&!!c.idEventoCalendar&&r.data.idEventoCalendar===c.idEventoCalendar);
+  if(events.length===1){citaMap.set(c.id,events[0].id);continue;}if(events.length>1){conflicts.push({id:c.id,motivo:'Evento de calendario duplicado en la base actual.'});continue;}
+  citaMap.set(c.id,c.id);add('citas',c.id,{...c,idProspecto:pid});
+ }
+ const saleIds=new Set<string>();
+ for(const v of pkg.colecciones.ventas||[]){const pid=mapping.get(v.idProspecto),cid=citaMap.get(v.idCita);if(!pid||!cid){conflicts.push({id:v.id,motivo:'Falta identificar prospecto o cita.'});continue;}
+  const ex=(current.ventas||[]).find(r=>r.id===v.id||r.data.idCita===cid);if(ex){if(ex.data.idProspecto!==pid||ex.data.idCita!==cid){conflicts.push({id:v.id,motivo:'Venta actual con vínculo diferente.'});continue;}saleIds.add(ex.id);continue;}
+  const paid=v.estadoPagoHistorico==='Pagada';add('ventas',v.id,{...v,idProspecto:pid,idCita:cid,estadoPagoHistorico:paid?'Pagada':'Pendiente',bonoPagable:calculateBonoPagable(v.estado,v.bonoGenerado,paid?'Pagada':'Pendiente')});saleIds.add(v.id);
+ }
+ for(const r of pkg.colecciones.retroalimentaciones||[]){const pid=mapping.get(r.idProspecto),cid=citaMap.get(r.idCita);if(!pid||!cid){conflicts.push({id:r.id,motivo:'Resultado sin prospecto o cita identificados.'});continue;}
+  if((current.retroalimentaciones||[]).some(x=>x.id===r.id||x.data.idCita===cid))continue;
+  const data:Record<string,any>={...r,idProspecto:pid,idCita:cid};if(data.idVenta&&!saleIds.has(data.idVenta))delete data.idVenta;add('retroalimentaciones',r.id,data);
+ }
+ // Pendientes conservados en logCargas, sin citas huérfanas ni ventas ficticias.
+ for(const [kind,rows] of [['AGENDA',pkg.pendientesAgenda||[]],['PROSPECTO',pkg.pendientesProspectos||[]]] as const)for(const r of rows){const id=`${pkg.idLote}-PEND-${kind}-${r.fila}`;if(!(current.logCargas||[]).some(x=>x.id===id))add('logCargas',id,{tipo:'PENDIENTE_MIGRACION',estado:'Pendiente',origen:kind,registro:r,fecha:pkg.fecha});}
+ const rows=Object.entries(collections).map(([coleccion,list])=>({coleccion,nuevos:list.length,conservados:(current[coleccion]||[]).length}));
+ return {file:{app:'CRM LLAMADAS',version:1,fecha:new Date().toISOString(),usuario,collections},rows,conflicts,pending:(pkg.pendientesAgenda?.length||0)+(pkg.pendientesProspectos?.length||0),remapped};
+}

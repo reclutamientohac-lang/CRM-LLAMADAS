@@ -1572,7 +1572,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         const bonoGenerado = calculateBonoGenerado(vMod.montoAprobado, vMod.porcentajeBono);
-        const bonoPagable = calculateBonoPagable(vMod.estado, bonoGenerado);
+        const bonoPagable = calculateBonoPagable(vMod.estado, bonoGenerado, ventaActual.estadoPagoHistorico);
 
         // Registrar en logVentas
         const idLog = generateLogVentaId();

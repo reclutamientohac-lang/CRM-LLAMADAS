@@ -7,7 +7,17 @@ export function workbook(sheets:Record<string,Record<string,any>[]>) {const wb=X
 export function excelBytes(wb:XLSX.WorkBook):ArrayBuffer{return XLSX.write(wb,{type:'array',bookType:'xlsx'});}
 export async function download(blob:Blob,name:string,confirmed=false):Promise<void>{if(!confirmed&&!window.confirm(PERSONAL_DATA_WARNING+'\n\n¿Continuar con la descarga?'))throw new Error('Descarga cancelada.');
   const w=window as any;
-  if(w.showSaveFilePicker){const handle=await w.showSaveFilePicker({suggestedName:name});const stream=await handle.createWritable();await stream.write(blob);await stream.close();return;}
+  if(w.showSaveFilePicker){
+    let handle;
+    try {handle=await w.showSaveFilePicker({suggestedName:name});}
+    catch(error){
+      // Async backup preparation can outlive transient user activation. Only
+      // picker availability errors may fall back; cancellation must still stop.
+      if(!error||typeof error!=='object'||!('name' in error)||!['SecurityError','NotSupportedError'].includes(String(error.name)))throw error;
+    }
+    // Do not turn a disk/write failure into an apparently successful backup.
+    if(handle){const stream=await handle.createWritable();await stream.write(blob);await stream.close();return;}
+  }
   const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 export function csvBytes(records:Record<string,any>[]):Blob{const ws=XLSX.utils.json_to_sheet(records.map(r=>Object.fromEntries(Object.entries(r).map(([k,v])=>[k,typeof v==='string'&&/^[=+@\-\t\r]/.test(v)?"'"+v:v]))));return new Blob(['\uFEFF'+XLSX.utils.sheet_to_csv(ws)],{type:'text/csv;charset=utf-8'});}

@@ -31,3 +31,30 @@ test('cohorte agrega conteos históricos sin atribuirlos a actividad',()=>{
  const p:any={...ps[0],fechaRecepcion:filters.desde,intentosHistoricos:7,contactosEfectivosHistoricos:3};const d:any={prospectos:[p],gestiones:[],citas:[],ventas:[],retroalimentaciones:[]};
  assert.equal(calculateReport(d,{...filters,enfoque:'Cohorte'},['propietario']).total.metrics.contactos,7);assert.equal(calculateReport(d,{...filters,enfoque:'Actividad'},['propietario']).total.metrics.contactos,0);
 });
+
+test('descarga de respaldo: selector, activación vencida, cancelación y errores de disco',async t=>{
+ const {download}=await import('../src/stage78/export.ts');
+ const originals=new Map(['window','document'].map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
+ t.after(()=>{for(const [k,d]of originals){if(d)Object.defineProperty(globalThis,k,d);else Reflect.deleteProperty(globalThis,k);}});
+ let clicked=0,removed=0,written:Blob|undefined,closed=false;
+ const anchor={href:'',download:'',click(){clicked++;},remove(){removed++;}};
+ Object.defineProperty(globalThis,'document',{configurable:true,value:{createElement:()=>anchor,body:{appendChild(){}}}});
+ const w:any={confirm:()=>true};Object.defineProperty(globalThis,'window',{configurable:true,value:w});
+ t.mock.method(URL,'createObjectURL',()=> 'blob:backup-test');
+ t.mock.method(globalThis,'setTimeout',((fn:any)=>{fn();return 0;}) as any);
+ t.mock.method(URL,'revokeObjectURL',()=>{});
+ const blob=new Blob(['{"backup":true}']);
+ for(const name of ['SecurityError','NotSupportedError']){
+  w.showSaveFilePicker=async()=>{throw new DOMException('Picker unavailable',name);};
+  await download(blob,'respaldo.json');
+ }
+ assert.equal(clicked,2);assert.equal(removed,2);assert.equal(anchor.download,'respaldo.json');
+ delete w.showSaveFilePicker;await download(blob,'respaldo.json');assert.equal(clicked,3);
+ w.showSaveFilePicker=async()=>({createWritable:async()=>({write:async(b:Blob)=>{written=b;},close:async()=>{closed=true;}})});
+ await download(blob,'respaldo.json');assert.equal(written,blob);assert.equal(closed,true);assert.equal(clicked,3);
+ w.showSaveFilePicker=async()=>{throw new DOMException('Cancelled','AbortError');};
+ await assert.rejects(download(blob,'respaldo.json'),{name:'AbortError'});assert.equal(clicked,3);
+ w.showSaveFilePicker=async()=>({createWritable:async()=>({write:async()=>{throw new DOMException('Disk error','SecurityError');},close:async()=>{}})});
+ await assert.rejects(download(blob,'respaldo.json'),{name:'SecurityError'});assert.equal(clicked,3);
+ w.confirm=()=>false;await assert.rejects(download(blob,'respaldo.json'),/Descarga cancelada/);assert.equal(clicked,3);
+});

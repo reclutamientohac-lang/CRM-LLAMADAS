@@ -21,6 +21,8 @@ export type EstadoCita = 'Agendada' | 'Realizada' | 'Reprogramada' | 'Cancelada'
 
 export type ResultadoCita =
   | 'Venta'
+  | 'Recibió sin compra'
+  | 'No se visitó'
   | 'No recibió'
   | 'Reprogramar'
   | 'Venta futura'
@@ -59,6 +61,9 @@ export interface Venta {
   bonoPagable: number | null;
   ultimaActualizacion: string;
   observacion: string;
+  estadoPagoHistorico?: 'Pagada' | 'Pendiente';
+  bonoPagadoHistorico?: number | null;
+  fechaPagoHistorico?: string | null;
   modificadoPor?: string;
 }
 
@@ -124,6 +129,8 @@ export interface Cita {
 }
 
 export interface Prospecto {
+  intentosHistoricos?: number;
+  contactosEfectivosHistoricos?: number;
   id: string; // formato PROS-aaaammddhhmmss-xxxx
   idLote?: string; // ID del lote de carga masiva si proviene de Excel
   fechaRecepcion: string; // YYYY-MM-DD

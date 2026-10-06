@@ -5,7 +5,7 @@ import { auth, db } from '../firebase';
 import { useAuth } from '../context/AuthContext';
 import { useCRM } from '../context/CRMContext';
 import type { Cita } from '../types';
-import { CALENDAR_ID, CalendarError, syncCalendarEvent } from '../calendar/events';
+import { CALENDAR_ID, CalendarError, calendarSyncRevision, syncCalendarEvent } from '../calendar/events';
 
 export function CalendarSync({ showExisting }: { showExisting: boolean }) {
   const { user } = useAuth();
@@ -18,7 +18,7 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
   const running = useRef(false);
   const latest = useRef(citas);
   latest.current = citas;
-  const pending = citas.filter(c => c.calendarSyncRequested && c.calendarSyncRequested !== c.calendarSyncDone);
+  const pending = citas.filter(c => calendarSyncRevision(c) && calendarSyncRevision(c) !== c.calendarSyncDone);
   const connected = !!session && session.uid === user?.uid && session.until > Date.now();
   useEffect(() => { const timer = setInterval(() => setTick(n => n + 1), 15000); return () => clearInterval(timer); }, []);
   useEffect(() => { setSession(null); }, [user?.uid]);
@@ -39,7 +39,7 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
   };
   useEffect(() => {
     if (!connected || !session || running.current || !user) return;
-    const candidate = latest.current.find(c => c.calendarSyncRequested && c.calendarSyncRequested !== c.calendarSyncDone && c.calendarSyncErrorVersion !== c.calendarSyncRequested && (!c.calendarSyncLeaseUntil || c.calendarSyncLeaseUntil < Date.now()));
+    const candidate = latest.current.find(c => calendarSyncRevision(c) && calendarSyncRevision(c) !== c.calendarSyncDone && c.calendarSyncErrorVersion !== calendarSyncRevision(c) && (!c.calendarSyncLeaseUntil || c.calendarSyncLeaseUntil < Date.now()));
     if (!candidate) return;
     running.current = true;
     const lease = crypto.randomUUID();
@@ -51,7 +51,7 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
           const record = await tx.get(ref);
           if (!record.exists()) return null;
           const current = { ...record.data(), id: record.id } as Cita;
-          if (!current.calendarSyncRequested || current.calendarSyncRequested === current.calendarSyncDone || (current.calendarSyncLeaseUntil || 0) > Date.now()) return null;
+          if (!calendarSyncRevision(current) || calendarSyncRevision(current) === current.calendarSyncDone || (current.calendarSyncLeaseUntil || 0) > Date.now()) return null;
           tx.update(ref, { calendarSyncLease: lease, calendarSyncLeaseUntil: Date.now() + 180000 });
           return current;
         });
@@ -60,9 +60,9 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
         await runTransaction(db, async tx => {
           const record = await tx.get(ref);
           if (!record.exists() || record.data().calendarSyncLease !== lease) return;
-          tx.update(ref, { ...result, calendarDestino: CALENDAR_ID, calendarSyncDone: snapshot!.calendarSyncRequested, calendarSyncError: '', calendarSyncErrorVersion: '', calendarSyncLeaseUntil: 0 });
+          tx.update(ref, { ...result, calendarDestino: CALENDAR_ID, calendarSyncDone: calendarSyncRevision(snapshot!), calendarSyncError: '', calendarSyncErrorVersion: '', calendarSyncLeaseUntil: 0 });
         });
-        setMessage('Cita sincronizada con AGENDA DE CITAS.');
+        setMessage(snapshot.estadoCita === 'Cancelada' ? 'Cancelación sincronizada con AGENDA DE CITAS.' : 'Cita sincronizada con AGENDA DE CITAS.');
       } catch (e) {
         const error = e instanceof Error ? e.message : 'No se pudo sincronizar la cita.';
         setMessage(error);
@@ -70,7 +70,7 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
         if (snapshot) await runTransaction(db, async tx => {
           const record = await tx.get(ref);
           if (!record.exists() || record.data().calendarSyncLease !== lease) return;
-          tx.update(ref, { calendarSyncError: error, calendarSyncErrorVersion: snapshot!.calendarSyncRequested, calendarSyncLeaseUntil: 0 });
+          tx.update(ref, { calendarSyncError: error, calendarSyncErrorVersion: calendarSyncRevision(snapshot!), calendarSyncLeaseUntil: 0 });
         }).catch(() => setMessage(`${error} No se pudo registrar el estado; la cita sigue pendiente.`));
       } finally { running.current = false; }
     })();
@@ -89,7 +89,7 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
       <button className="rounded-lg bg-[#0D2240] px-3 py-2 text-white disabled:opacity-50" disabled={busy} onClick={connect}>{connected ? 'Renovar conexión' : 'Conectar Google Calendar'}</button></div>
     <p className="mt-2 text-xs text-slate-600">Sincroniza mientras esta app esté abierta y la conexión siga vigente. Horario de Los Ángeles; duración de 1 hora. Si cierras la app o vence el permiso, las operaciones quedan pendientes. Los cambios hechos en Google Calendar no regresan al CRM.</p>
     {message && <p role="status" className="mt-2">{message}</p>}
-    {pending.filter(c => c.calendarSyncErrorVersion === c.calendarSyncRequested).map(c => <div key={c.id} className="mt-2 text-rose-700">{c.asunto}: {c.calendarSyncError} <button className="underline" disabled={busy} onClick={() => enqueue(c.id)}>Reintentar</button></div>)}
+    {pending.filter(c => c.calendarSyncErrorVersion === calendarSyncRevision(c)).map(c => <div key={c.id} className="mt-2 text-rose-700">{c.asunto}: {c.calendarSyncError} <button className="underline" disabled={busy} onClick={() => enqueue(c.id)}>Reintentar</button></div>)}
     {showExisting && unlinked.length > 0 && <div className="mt-3 flex flex-wrap items-center gap-2"><label htmlFor="calendar-existing">Enviar una cita existente:</label><select className="max-w-full rounded border p-2" id="calendar-existing" value={selected} onChange={e => setSelected(e.target.value)}><option value="">Selecciona una cita</option>{unlinked.map(c => <option key={c.id} value={c.id}>{c.fechaCita} · {c.horaCita} · {c.asunto}</option>)}</select><button disabled={!selected || busy} className="rounded border px-3 py-2 disabled:opacity-50" onClick={() => enqueue(selected)}>Enviar a Calendar</button></div>}
   </section>;
 }

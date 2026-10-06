@@ -2,6 +2,13 @@ import type { Cita } from '../types';
 
 export const CALENDAR_ID = '71d933f40940ebf6b2ddc9a8abd4326ce0a25a377eb76e8549d1cbb4a61480ad@group.calendar.google.com';
 export const CALENDAR_ZONE = 'America/Los_Angeles';
+export function calendarSyncRevision(cita: Cita): string {
+  const requested = cita.calendarSyncRequested || '';
+  // Una pestaña antigua puede cancelar/reprogramar sin escribir la nueva marca.
+  return cita.calendarDestino === CALENDAR_ID
+    ? [requested, cita.ultimaActualizacion || ''].sort().at(-1) || ''
+    : requested;
+}
 export async function calendarEventId(id: string) {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`crm-llamadas:${id}`));
   return 'crm' + Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
@@ -50,6 +57,11 @@ export async function syncCalendarEvent(cita: Cita, token: string, request: type
   let existing: any;
   try { existing = await call(`/${encodeURIComponent(id)}`, 'GET'); }
   catch (e) { if (!(e instanceof CalendarError) || ![404, 410].includes(e.status)) throw e; }
+  if (cita.estadoCita === 'Cancelada' && existing?.status === 'cancelled') {
+    // Google puede devolver solo un tombstone, sin propiedades privadas.
+    if (id !== deterministicId && cita.calendarDestino !== CALENDAR_ID) throw new Error('El evento cancelado requiere revisión.');
+    return { idEventoCalendar: id, enlaceCalendar: cita.enlaceCalendar || '' };
+  }
   if (existing && existing.extendedProperties?.private?.crmCitaId !== cita.id) {
     throw new Error('El evento vinculado no fue creado por esta integración. Requiere revisión para evitar modificar otro evento.');
   }

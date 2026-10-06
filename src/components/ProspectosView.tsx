@@ -19,8 +19,6 @@ import {
   ChevronRight,
   ShieldAlert,
   AlertCircle,
-  Copy,
-  Check,
   PhoneCall,
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
@@ -88,7 +86,6 @@ export const ProspectosView: React.FC = () => {
   const [editingProspecto, setEditingProspecto] = useState<Prospecto | null>(null);
   const [llamadaProspecto, setLlamadaProspecto] = useState<Prospecto | null>(null);
 
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Distinct values for filter dropdowns
   const filterOptions = useMemo(() => {
@@ -204,6 +201,10 @@ export const ProspectosView: React.FC = () => {
   const sortedProspectos = useMemo(() => {
     const list = [...filteredProspectos];
     list.sort((a, b) => {
+      const hasDateA = /^\d{4}-\d{2}-\d{2}$/.test((a.fechaRecepcion || '').trim());
+      const hasDateB = /^\d{4}-\d{2}-\d{2}$/.test((b.fechaRecepcion || '').trim());
+      // Las fechas desconocidas quedan siempre al final, incluso al invertir el orden.
+      if (hasDateA !== hasDateB) return hasDateA ? -1 : 1;
       let valA: string = a[sortField] || '';
       let valB: string = b[sortField] || '';
 
@@ -292,13 +293,6 @@ export const ProspectosView: React.FC = () => {
     }
     setBulkProcessing(false);
     setSelectedIds([]);
-  };
-
-  const handleCopyId = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(id);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 1800);
   };
 
   return (
@@ -896,32 +890,11 @@ export const ProspectosView: React.FC = () => {
                         </td>
                       )}
 
-                      {/* Nombre & ID */}
+                      {/* Nombre */}
                       <td className="py-3 px-4">
                         <div className="font-bold text-slate-900 text-sm hover:text-[#0D2240]">
                           {p.nombre}
                         </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono mt-0.5">
-                          <span>{p.id}</span>
-                          <button
-                            onClick={(e) => handleCopyId(p.id, e)}
-                            className="hover:text-slate-700"
-                            title="Copiar ID"
-                          >
-                            {copiedId === p.id ? (
-                              <Check className="w-3 h-3 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-                        {p.idLote && (
-                          <div className="mt-0.5">
-                            <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-[#B8922A]/10 text-[#9a781f] border border-[#B8922A]/20">
-                              {p.idLote}
-                            </span>
-                          </div>
-                        )}
                       </td>
 
                       {/* Teléfono */}

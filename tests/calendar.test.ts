@@ -35,3 +35,14 @@ test('cancelación sin evento no crea uno; cancelación vinculada conserva id', 
  const existing=async (_u:any,i:any)=>{methods.push(i.method); if(i.method==='PATCH') assert.equal(JSON.parse(i.body).status,'cancelled'); return new Response(JSON.stringify({id:'known',extendedProperties:{private:{crmCitaId:cita.id}}}));};
  const result=await syncCalendarEvent({...cita,estadoCita:'Cancelada',idEventoCalendar:'known'},'test',existing as typeof fetch); assert.equal(result.idEventoCalendar,'known');assert.deepEqual(methods,['GET','PATCH']);
 });
+test('detecta cancelación desde una pestaña anterior sin marca de sincronización', async () => {
+ const {calendarSyncRevision,CALENDAR_ID}=await import('../src/calendar/events.ts');
+ const linked={...cita,calendarDestino:CALENDAR_ID,calendarSyncRequested:'2026-10-06T18:34:00Z',calendarSyncDone:'2026-10-06T18:34:00Z',ultimaActualizacion:'2026-10-06T18:38:00Z',estadoCita:'Cancelada'} as Cita;
+ assert.equal(calendarSyncRevision(linked),'2026-10-06T18:38:00Z');
+ assert.equal(calendarSyncRevision({...linked,calendarDestino:undefined}),linked.calendarSyncRequested);
+});
+test('cancelación ya realizada en Google acepta tombstone sin duplicar ni modificar',async()=>{
+ const id=await calendarEventId(cita.id); let calls=0;
+ const result=await syncCalendarEvent({...cita,idEventoCalendar:id,estadoCita:'Cancelada'},'test',(async()=>{calls++;return new Response(JSON.stringify({id,status:'cancelled'}));}) as typeof fetch);
+ assert.equal(calls,1);assert.equal(result.idEventoCalendar,id);
+});

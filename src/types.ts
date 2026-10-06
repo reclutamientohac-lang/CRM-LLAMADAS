@@ -110,6 +110,13 @@ export interface Gestion {
 }
 
 export interface Cita {
+  calendarSyncRequested?: string;
+  calendarSyncDone?: string;
+  calendarSyncError?: string;
+  calendarSyncErrorVersion?: string;
+  calendarSyncLease?: string;
+  calendarSyncLeaseUntil?: number;
+  calendarDestino?: string;
   id: string; // formato CITA-aaaammddhhmmss-xxxx
   idProspecto: string;
   fechaCreacion: string; // ISO
@@ -123,8 +130,8 @@ export interface Cita {
   quienAtiende: string;
   invitado: string;
   estadoCita: EstadoCita;
-  idEventoCalendar: string; // vacío por ahora
-  enlaceCalendar: string; // vacío por ahora
+  idEventoCalendar: string;
+  enlaceCalendar: string;
   ultimaActualizacion: string; // ISO
 }
 
@@ -435,4 +442,3 @@ export interface DistribucionResultadoLlamadaItem {
   pct: number;
   color: string;
 }
-

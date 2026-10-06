@@ -1235,6 +1235,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           estadoCita: 'Agendada',
           idEventoCalendar: '',
           enlaceCalendar: '',
+          calendarSyncRequested: nowISO,
           ultimaActualizacion: nowISO,
         };
         batch.set(citaRef, nuevaCita);
@@ -1395,8 +1396,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           estadoCita: 'Reprogramada',
           fechaCita: resultadoData.nuevaFecha,
           horaCita: resultadoData.nuevaHora,
-          idEventoCalendar: '',
-          enlaceCalendar: '',
+          calendarSyncRequested: nowISO,
           ultimaActualizacion: nowISO,
         });
       } else {
@@ -1498,6 +1498,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const citaRef = doc(db, 'citas', cita.id);
       batch.update(citaRef, {
         estadoCita: 'Cancelada',
+        calendarSyncRequested: nowISO,
         ultimaActualizacion: nowISO,
       });
 

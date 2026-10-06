@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function userEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function esAdmin() {
+      return isEmailVerified() && userEmail() == 'reclutamientohac@gmail.com';
+    }
+
+    function existeDocAutorizado() {
+      return exists(/databases/$(database)/documents/usuariosAutorizados/$(userEmail()));
+    }
+
+    function getDocAutorizado() {
+      return get(/databases/$(database)/documents/usuariosAutorizados/$(userEmail())).data;
+    }
+
+    function esAutorizado() {
+      return esAdmin() || (isEmailVerified() && existeDocAutorizado() && getDocAutorizado().activo == true);
+    }
+
+    function rolActual() {
+      return esAdmin() ? 'Administrador' : (existeDocAutorizado() ? getDocAutorizado().rol : '');
+    }
+
+    function esSupervisor() {
+      return esAdmin() || (esAutorizado() && rolActual() == 'Supervisor');
+    }
+
+    function telemarketingActual() {
+      return esAutorizado() && existeDocAutorizado() && 'telemarketingVinculada' in getDocAutorizado() ?
+        getDocAutorizado().telemarketingVinculada : '';
+    }
+
+    // Colección: usuariosAutorizados
+    match /usuariosAutorizados/{emailDoc} {
+      allow get: if esAdmin() || (isEmailVerified() && userEmail() == emailDoc.lower());
+      allow list: if esAdmin();
+      allow create, delete: if esAdmin();
+      allow update: if esAdmin() || (
+        isEmailVerified() &&
+        userEmail() == emailDoc.lower() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcceso'])
+      );
+    }
+
+    // Colección: solicitudesAcceso
+    match /solicitudesAcceso/{solicitudId} {
+      allow create: if isEmailVerified() &&
+        userEmail() == solicitudId.lower() &&
+        request.resource.data.email.lower() == userEmail();
+      allow get: if esAdmin() || (isEmailVerified() && userEmail() == solicitudId.lower());
+      allow list, update, delete: if esAdmin();
+    }
+
+    // Colección: logAccesos
+    match /logAccesos/{logId} {
+      allow read, write: if esAdmin();
+    }
+
+    // Colección: settings
+    match /settings/{settingId} {
+      allow read: if esAutorizado();
+      allow write: if esSupervisor();
+    }
+
+    // Colección: logCargas
+    match /logCargas/{logId} {
+      allow read, write: if esSupervisor();
+    }
+
+    // Colección: gestiones
+    match /gestiones/{gestionId} {
+      allow read: if esAutorizado();
+      allow create, update: if esAutorizado();
+      allow delete: if esSupervisor();
+    }
+
+    // Colección: citas
+    match /citas/{citaId} {
+      allow read: if esAutorizado();
+      allow create, update: if esAutorizado();
+      allow delete: if esSupervisor();
+    }
+
+    // Colección: retroalimentaciones
+    match /retroalimentaciones/{retroId} {
+      allow read, create: if esAutorizado();
+      allow update, delete: if esSupervisor();
+    }
+
+    // Colección: ventas
+    match /ventas/{ventaId} {
+      allow read: if esSupervisor() || (
+        esAutorizado() && resource.data.telemarketing == telemarketingActual()
+      );
+      allow create: if esAutorizado();
+      allow update: if esSupervisor();
+      allow delete: if esSupervisor();
+    }
+
+    // Colección: logVentas
+    match /logVentas/{logId} {
+      allow read: if esSupervisor();
+      allow create: if esSupervisor();
+      allow update, delete: if false;
+    }
+
+    // Colección: prospectos
+    match /prospectos/{prospectoId} {
+      allow get: if esAutorizado() && (
+        esSupervisor() ||
+        resource.data.telemarketing == telemarketingActual() ||
+        resource.data.telemarketing == 'SIN ASIGNAR'
+      );
+      
+      allow list: if esAutorizado() && (
+        esSupervisor() ||
+        resource.data.telemarketing == telemarketingActual()
+      );
+
+      allow create: if esAutorizado();
+
+      allow update: if esAutorizado() && (
+        esSupervisor() ||
+        resource.data.telemarketing == telemarketingActual() ||
+        resource.data.telemarketing == 'SIN ASIGNAR'
+      );
+
+      allow delete: if esSupervisor();
+    }
+
+    // Colección legacy: users
+    match /users/{userId} {
+      allow read: if esAutorizado();
+      allow write: if esSupervisor();
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "CRM LLAMADAS",
+  "description": "Sistema CRM para equipo de telemarketing y agendamiento de citas para vendedores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

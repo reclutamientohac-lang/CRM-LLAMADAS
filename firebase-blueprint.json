@@ -1,0 +1,593 @@
+{
+  "entities": {
+    "Prospecto": {
+      "title": "Prospecto",
+      "description": "Lead / prospecto para llamadas de telemarketing y agendamiento de citas",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID único con formato PROS-aaaammddhhmmss-xxxx",
+          "pattern": "^PROS-[0-9]{14}-[a-z0-9]{4}$"
+        },
+        "idLote": {
+          "type": "string",
+          "description": "ID del lote de carga masiva si proviene de Excel"
+        },
+        "fechaRecepcion": {
+          "type": "string",
+          "description": "Fecha de recepción en formato YYYY-MM-DD"
+        },
+        "fechaProspeccion": {
+          "type": "string",
+          "description": "Fecha de prospección opcional"
+        },
+        "propietario": {
+          "type": "string",
+          "description": "Dueño del lead o emprendedor"
+        },
+        "tipoCarga": {
+          "type": "string",
+          "enum": ["Manual", "Formulario", "Excel"]
+        },
+        "tipoProspecto": {
+          "type": "string",
+          "description": "Categoría o tipo de prospecto"
+        },
+        "origen": {
+          "type": "string",
+          "description": "Lugar, referido, anfitrión, rifa, etc."
+        },
+        "nombre": {
+          "type": "string",
+          "description": "Nombre completo del prospecto",
+          "minLength": 2,
+          "maxLength": 150
+        },
+        "telefono": {
+          "type": "string",
+          "description": "Teléfono normalizado solo dígitos sin el 1 inicial de 11 dígitos",
+          "minLength": 7,
+          "maxLength": 15
+        },
+        "ciudadZona": {
+          "type": "string",
+          "description": "Ciudad o zona de residencia",
+          "maxLength": 120
+        },
+        "telemarketing": {
+          "type": "string",
+          "description": "Nombre de la telemarketing asignada o 'SIN ASIGNAR'"
+        },
+        "temperatura": {
+          "type": "string",
+          "enum": ["Hot", "Tibio", "Frío"]
+        },
+        "contexto": {
+          "type": "string",
+          "description": "Contexto para abordar al prospecto"
+        },
+        "llamadoPorEmprendedor": {
+          "type": "string",
+          "enum": ["Sí", "No"]
+        },
+        "ultimoContacto": {
+          "type": "string",
+          "description": "Fecha u hora del último contacto o null"
+        },
+        "ultimoResultado": {
+          "type": "string",
+          "description": "Último resultado obtenido o null"
+        },
+        "intentos": {
+          "type": "number",
+          "description": "Cantidad de intentos de llamada realizados"
+        },
+        "contactosEfectivos": {
+          "type": "number",
+          "description": "Cantidad de contactos efectivos logrados"
+        },
+        "proximaAccion": {
+          "type": "string",
+          "description": "Descripción de la próxima acción"
+        },
+        "fechaProximaAccion": {
+          "type": "string",
+          "description": "Fecha y hora de la próxima acción"
+        },
+        "idCita": {
+          "type": "string",
+          "description": "ID de cita agendada o null"
+        },
+        "estado": {
+          "type": "string",
+          "description": "Estado del prospecto (Nuevo, etc.)"
+        },
+        "observacion": {
+          "type": "string",
+          "description": "Observaciones generales"
+        },
+        "creadoPor": {
+          "type": "string",
+          "description": "Usuario que creó el prospecto"
+        },
+        "creadoEn": {
+          "type": "string",
+          "description": "Timestamp ISO de creación"
+        },
+        "modificadoEn": {
+          "type": "string",
+          "description": "Timestamp ISO de última modificación"
+        },
+        "archivado": {
+          "type": "boolean",
+          "description": "Indica si el prospecto está en papelera"
+        }
+      },
+      "required": [
+        "id",
+        "nombre",
+        "telefono",
+        "fechaRecepcion",
+        "temperatura",
+        "telemarketing",
+        "estado",
+        "archivado"
+      ]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Perfil de usuario del sistema CRM",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Supervisor", "Telemarketing"]
+        },
+        "telemarketingAgent": {
+          "type": "string",
+          "description": "Nombre asignado en el catálogo de telemarketing si el rol es Telemarketing"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Catálogos configurables del CRM",
+      "type": "object",
+      "properties": {
+        "telemarketingAgents": {
+          "type": "array"
+        },
+        "tiposProspecto": {
+          "type": "array"
+        },
+        "origenes": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "LogCarga": {
+      "title": "LogCarga",
+      "description": "Historial de registros de cargas masivas por Excel",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "idLote": {
+          "type": "string"
+        },
+        "fechaHora": {
+          "type": "string"
+        },
+        "usuario": {
+          "type": "string"
+        },
+        "nombreArchivo": {
+          "type": "string"
+        },
+        "filasLeidas": {
+          "type": "number"
+        },
+        "filasCreadas": {
+          "type": "number"
+        },
+        "filasDuplicadas": {
+          "type": "number"
+        },
+        "filasError": {
+          "type": "number"
+        },
+        "repartoAplicado": {
+          "type": "string"
+        },
+        "deshecho": {
+          "type": "boolean"
+        },
+        "deshechoEn": {
+          "type": "string"
+        },
+        "deshechoPor": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "idLote", "fechaHora", "usuario", "nombreArchivo"]
+    },
+    "Gestion": {
+      "title": "Gestion",
+      "description": "Historial de llamadas y gestiones de telemarketing",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID con formato GES-aaaammddhhmmss-xxxx"
+        },
+        "idProspecto": {
+          "type": "string"
+        },
+        "fechaHora": {
+          "type": "string"
+        },
+        "telemarketing": {
+          "type": "string"
+        },
+        "canal": {
+          "type": "string",
+          "enum": ["Llamada"]
+        },
+        "resultado": {
+          "type": "string",
+          "enum": [
+            "No contesta",
+            "Buzón",
+            "No interesado",
+            "Llamar luego",
+            "Cita",
+            "Número desconectado/incorrecto"
+          ]
+        },
+        "efectivo": {
+          "type": "string",
+          "enum": ["Sí", "No"]
+        },
+        "observacion": {
+          "type": "string"
+        },
+        "fechaSeguimiento": {
+          "type": "string"
+        },
+        "horaSeguimiento": {
+          "type": "string"
+        },
+        "idCita": {
+          "type": "string"
+        },
+        "creadoPor": {
+          "type": "string"
+        },
+        "creadoEn": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "idProspecto", "fechaHora", "telemarketing", "canal", "resultado", "efectivo", "creadoPor"]
+    },
+    "Cita": {
+      "title": "Cita",
+      "description": "Citas agendadas por telemarketing para vendedores",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID con formato CITA-aaaammddhhmmss-xxxx"
+        },
+        "idProspecto": {
+          "type": "string"
+        },
+        "fechaCreacion": {
+          "type": "string"
+        },
+        "telemarketing": {
+          "type": "string"
+        },
+        "fechaCita": {
+          "type": "string"
+        },
+        "horaCita": {
+          "type": "string"
+        },
+        "asunto": {
+          "type": "string"
+        },
+        "direccion": {
+          "type": "string"
+        },
+        "linkGoogleMaps": {
+          "type": "string"
+        },
+        "descripcion": {
+          "type": "string"
+        },
+        "quienAtiende": {
+          "type": "string"
+        },
+        "invitado": {
+          "type": "string"
+        },
+        "estadoCita": {
+          "type": "string",
+          "enum": ["Agendada", "Realizada", "Cancelada", "Reagendada"]
+        },
+        "idEventoCalendar": {
+          "type": "string"
+        },
+        "enlaceCalendar": {
+          "type": "string"
+        },
+        "ultimaActualizacion": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "idProspecto", "fechaCreacion", "telemarketing", "fechaCita", "horaCita", "asunto", "direccion", "linkGoogleMaps", "estadoCita"]
+    },
+    "Retroalimentacion": {
+      "title": "Retroalimentacion",
+      "description": "Resultados y retroalimentaciones comerciales de citas",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID con formato RETRO-aaaammddhhmmss-xxxx"
+        },
+        "idCita": {
+          "type": "string"
+        },
+        "idProspecto": {
+          "type": "string"
+        },
+        "fecha": {
+          "type": "string"
+        },
+        "resultado": {
+          "type": "string",
+          "enum": [
+            "Venta",
+            "No recibió",
+            "Reprogramar",
+            "Venta futura",
+            "No interesada dio referencias",
+            "No interesada sin referencias",
+            "Cancelación"
+          ]
+        },
+        "observacion": {
+          "type": "string"
+        },
+        "nuevaFecha": {
+          "type": "string"
+        },
+        "nuevaHora": {
+          "type": "string"
+        },
+        "fechaProximoContacto": {
+          "type": "string"
+        },
+        "horaProximoContacto": {
+          "type": "string"
+        },
+        "idVenta": {
+          "type": "string"
+        },
+        "creadoPor": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "idCita", "idProspecto", "fecha", "resultado", "creadoPor"]
+    },
+    "Venta": {
+      "title": "Venta",
+      "description": "Registro de ventas pendientes de aprobación",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID con formato VENTA-aaaammddhhmmss-xxxx"
+        },
+        "idProspecto": {
+          "type": "string"
+        },
+        "idCita": {
+          "type": "string"
+        },
+        "fechaReporte": {
+          "type": "string"
+        },
+        "telemarketing": {
+          "type": "string"
+        },
+        "montoAprobado": {
+          "type": ["number", "null"]
+        },
+        "estado": {
+          "type": "string",
+          "enum": ["Pendiente", "Aprobada", "Rechazada"]
+        },
+        "porcentajeBono": {
+          "type": ["number", "null"]
+        },
+        "bonoGenerado": {
+          "type": ["number", "null"]
+        },
+        "bonoPagable": {
+          "type": ["number", "null"]
+        },
+        "ultimaActualizacion": {
+          "type": "string"
+        },
+        "observacion": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "idProspecto", "idCita", "fechaReporte", "telemarketing", "estado"]
+    },
+    "UsuarioAutorizado": {
+      "title": "UsuarioAutorizado",
+      "description": "Lista de usuarios autorizados con rol y telemarketing vinculada",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "nombre": {
+          "type": "string"
+        },
+        "rol": {
+          "type": "string",
+          "enum": ["Supervisor", "Telemarketing"]
+        },
+        "telemarketingVinculada": {
+          "type": "string"
+        },
+        "activo": {
+          "type": "boolean"
+        },
+        "agregadoPor": {
+          "type": "string"
+        },
+        "fechaAlta": {
+          "type": "string"
+        },
+        "ultimoAcceso": {
+          "type": ["string", "null"]
+        },
+        "desactivadoPor": {
+          "type": ["string", "null"]
+        },
+        "fechaDesactivacion": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["email", "nombre", "rol", "activo", "agregadoPor", "fechaAlta"]
+    },
+    "SolicitudAcceso": {
+      "title": "SolicitudAcceso",
+      "description": "Solicitudes de acceso pendientes o revisadas",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "nombre": {
+          "type": "string"
+        },
+        "fecha": {
+          "type": "string"
+        },
+        "estado": {
+          "type": "string",
+          "enum": ["Pendiente", "Aprobada", "Rechazada"]
+        },
+        "revisadoPor": {
+          "type": "string"
+        },
+        "fechaRevision": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "email", "nombre", "fecha", "estado"]
+    },
+    "LogAcceso": {
+      "title": "LogAcceso",
+      "description": "Historial de auditoría de modificaciones de acceso",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "fechaHora": {
+          "type": "string"
+        },
+        "accion": {
+          "type": "string"
+        },
+        "realizadoPor": {
+          "type": "string"
+        },
+        "usuarioAfectado": {
+          "type": "string"
+        },
+        "detalles": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "fechaHora", "accion", "realizadoPor", "usuarioAfectado", "detalles"]
+    }
+  },
+  "firestore": {
+    "/prospectos/{prospectoId}": {
+      "schema": "Prospecto",
+      "description": "Colección principal de prospectos"
+    },
+    "/usuariosAutorizados/{email}": {
+      "schema": "UsuarioAutorizado",
+      "description": "Usuarios autorizados con permisos y rol"
+    },
+    "/solicitudesAcceso/{email}": {
+      "schema": "SolicitudAcceso",
+      "description": "Solicitudes de acceso enviadas por usuarios no autorizados"
+    },
+    "/logAccesos/{logId}": {
+      "schema": "LogAcceso",
+      "description": "Historial de auditoría de accesos y cambios de rol"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Perfiles y roles de los usuarios del sistema"
+    },
+    "/settings/{settingId}": {
+      "schema": "AppSettings",
+      "description": "Configuraciones globales y catálogos editables"
+    },
+    "/logCargas/{logId}": {
+      "schema": "LogCarga",
+      "description": "Historial de auditoría de cargas masivas de Excel"
+    },
+    "/gestiones/{gestionId}": {
+      "schema": "Gestion",
+      "description": "Historial de llamadas y gestiones de telemarketing"
+    },
+    "/citas/{citaId}": {
+      "schema": "Cita",
+      "description": "Citas agendadas por telemarketing"
+    },
+    "/retroalimentaciones/{retroId}": {
+      "schema": "Retroalimentacion",
+      "description": "Resultados y retroalimentaciones comerciales de citas"
+    },
+    "/ventas/{ventaId}": {
+      "schema": "Venta",
+      "description": "Registro de ventas pendientes de aprobación de supervisión"
+    }
+  }
+}

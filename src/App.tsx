@@ -1,4 +1,5 @@
 import './stage78/style.css';
+import { CalendarSync } from './components/CalendarSync';
 import { ReportesView } from './components/ReportesView';
 import { RespaldoView, BackupBanner } from './components/RespaldoView';
 import { ConsultaGlobalView } from './components/ConsultaGlobalView';
@@ -225,6 +226,7 @@ function MainLayout() {
         {/* Citas de Hoy Alert Banner & Browser Notifications */}
         <CitasHoyBanner onSelectProspecto={(p) => setDrawerProspecto(p)} />
         <BackupBanner onNavigate={() => setCurrentTab('respaldo')} />
+        <CalendarSync showExisting={currentTab === 'agenda'} />
 
         {/* Dynamic View Body */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">

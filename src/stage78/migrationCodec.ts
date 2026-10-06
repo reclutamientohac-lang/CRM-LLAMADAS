@@ -1,0 +1,17 @@
+import { encodeRecord } from './backupCodec';
+import type { MigrationPackage } from './migrationTypes';
+export function validateMigration(value:any):MigrationPackage {
+ if(!value||value.formato!=='CRM LLAMADAS - PAQUETE DE MIGRACION'||value.version!==1||value.zonaHoraria!=='America/Los_Angeles')throw new Error('Formato, versión o zona horaria de migración incompatible.');
+ if(typeof value.idLote!=='string'||!/^[-A-Za-z0-9_]{1,100}$/.test(value.idLote)||!Number.isFinite(Date.parse(value.fecha)))throw new Error('Lote o fecha inválidos.');
+ const allowed=['prospectos','citas','retroalimentaciones','ventas'];if(!value.colecciones||!Array.isArray(value.colecciones.prospectos)||Object.keys(value.colecciones).some(k=>!allowed.includes(k)))throw new Error('Colecciones inválidas. Sólo se importan prospectos, citas, resultados y ventas.');
+ const ids:Record<string,Set<string>>={};
+ for(const name of allowed){const records=value.colecciones[name]||[];if(!Array.isArray(records)||records.length>150000)throw new Error('Colección demasiado grande o inválida.');ids[name]=new Set();for(const r of records){if(!r||typeof r.id!=='string'||!r.id||r.id.includes('/')||ids[name].has(r.id))throw new Error('ID inválido o duplicado en '+name);ids[name].add(r.id);encodeRecord(r.id,r);if(new TextEncoder().encode(JSON.stringify(r)).length>800000)throw new Error('Registro demasiado grande: '+r.id);if(name==='prospectos'&&(typeof r.nombre!=='string'||typeof r.telefono!=='string'||!Number.isInteger(r.intentos)||r.intentos<0||!Number.isInteger(r.contactosEfectivos)||r.contactosEfectivos<0||r.contactosEfectivos>r.intentos))throw new Error('Prospecto o conteos inválidos: '+r.id);if(name==='ventas'&&[r.montoAprobado,r.bonoGenerado,r.porcentajeBono].some(v=>v!=null&&(typeof v!=='number'||!Number.isFinite(v)||v<0)))throw new Error('Importes inválidos: '+r.id);}}
+ for(const name of ['citas','retroalimentaciones','ventas'])for(const r of value.colecciones[name]||[]){if(!ids.prospectos.has(r.idProspecto))throw new Error('Registro sin prospecto: '+r.id);if(name!=='citas'&&!ids.citas.has(r.idCita))throw new Error('Registro sin cita: '+r.id);if(name==='citas'&&(!/^\d{4}-\d{2}-\d{2}$/.test(r.fechaCita)||new Date(r.fechaCita+'T12:00:00Z').toISOString().slice(0,10)!==r.fechaCita))throw new Error('Fecha de cita inválida: '+r.id);}
+ for(const key of ['pendientesAgenda','pendientesProspectos','incidencias']){if(value[key]&&!Array.isArray(value[key]))throw new Error('Lista de pendientes inválida.');for(const r of value[key]||[])encodeRecord('revision',r);}
+ // Recuperar resultados que no tenían equivalente en la versión anterior del CRM.
+ const pkg=structuredClone(value) as MigrationPackage;pkg.colecciones.retroalimentaciones ||= [];
+ const results=new Set(pkg.colecciones.retroalimentaciones.map(r=>r.idCita));
+ for(const c of pkg.colecciones.citas||[]){const source=c.fuenteMigracion?.valores;const result=source?.[11];if(String(result||'').trim().toUpperCase()==='RECIBIO NO COMPRO'&&!results.has(c.id))pkg.colecciones.retroalimentaciones.push({id:'RETRO-HIST-'+c.id,idCita:c.id,idProspecto:c.idProspecto,fecha:c.fechaCita,resultado:'Recibió sin compra',resultadoOriginal:result,observacion:source[12]||'',creadoPor:'migracion-historica',fechaResultadoDesconocida:true,fuenteMigracion:c.fuenteMigracion});}
+ for(const r of pkg.colecciones.retroalimentaciones)if(r.resultadoOriginal==='NO SE VISITO')r.resultado='No se visitó';
+ return pkg;
+}

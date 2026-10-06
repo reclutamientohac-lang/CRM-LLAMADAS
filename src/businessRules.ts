@@ -1748,7 +1748,7 @@ export function inspectCRMIntegrity(data:import('./stage78/types').ReportData,ag
 export function formatExportDateTimeLA(value:string|Date):string {const d=new Date(value);if(!Number.isFinite(d.getTime()))return String(value);const parts=new Intl.DateTimeFormat('en-US',{timeZone:TIMEZONE_LA,day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true}).formatToParts(d);const get=(k:string)=>parts.find(p=>p.type===k)?.value;return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')} ${get('dayPeriod')}`;}
 
 /** Importación histórica: sólo altas; no sobrescribir registros actuales ni inventar gestiones. */
-export function prepareHistoricalMigration(pkg:import('./migration/types').MigrationPackage,current:import('./migration/types').CurrentMigrationData,usuario:string):import('./migration/types').MigrationPreview {
+export function prepareHistoricalMigration(pkg:import('./stage78/migrationTypes').MigrationPackage,current:import('./stage78/migrationTypes').CurrentMigrationData,usuario:string):import('./stage78/migrationTypes').MigrationPreview {
  const collections:Record<string,import('./stage78/types').BackupRecord[]>={prospectos:[],citas:[],retroalimentaciones:[],ventas:[],logCargas:[]};
  const conflicts:{id:string;motivo:string}[]=[];const mapping=new Map<string,string>();const blocked=new Set<string>();let remapped=0;
  const normalizedPhone=(v:any)=>{const s=String(v||'').replace(/\D/g,'');return s.length===11&&s.startsWith('1')?s.slice(1):s.length===10?s:'';};

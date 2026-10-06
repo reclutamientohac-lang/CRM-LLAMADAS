@@ -3,7 +3,7 @@ import JSZip from 'jszip';
 import {doc,runTransaction} from 'firebase/firestore';
 import {db} from '../firebase';
 import {useAuth} from '../context/AuthContext';
-import {prepareHistoricalMigration,PERSONAL_DATA_WARNING} from '../businessRules';
+import {prepareHistoricalMigration,PERSONAL_DATA_WARNING,DEFAULT_SETTINGS} from '../businessRules';
 import {validateMigration} from '../stage78/migrationCodec';
 import type {MigrationPackage,MigrationPreview} from '../stage78/migrationTypes';
 import {readBackup,readPaged,registerBackup,restore,audit,discardCheckpoint} from '../stage78/service';
@@ -11,10 +11,10 @@ import {download,workbook,excelBytes,readable} from '../stage78/export';
 import {sha256} from '../stage78/backupCodec';
 import {Button,DataTable} from '../stage78/ui';
 import type {BackupRecord,Progress} from '../stage78/types';
-export function MigracionHistoricaView({disabled=false}:{disabled?:boolean}){
+export function MigracionHistoricaView({disabled=false,onBusyChange}:{disabled?:boolean;onBusyChange?:(busy:boolean)=>void}){
  const {isAdmin,user}=useAuth();const [pkg,setPkg]=useState<MigrationPackage|null>(null),[preview,setPreview]=useState<MigrationPreview|null>(null),[current,setCurrent]=useState<Record<string,BackupRecord[]>>({}),[busy,setBusy]=useState(false),[error,setError]=useState(''),[status,setStatus]=useState(''),[filename,setFilename]=useState(''),[hash,setHash]=useState(''),[progress,setProgress]=useState<Progress>({message:'',done:0,total:0}),[backupSaved,setBackupSaved]=useState(false),[downloaded,setDownloaded]=useState(false),[word,setWord]=useState(''),[result,setResult]=useState<any>(null);
  const control=useRef<AbortController|null>(null);useEffect(()=>()=>control.current?.abort(),[]);
- const run=async(fn:(signal:AbortSignal)=>Promise<void>)=>{if(busy||disabled)return;const ac=new AbortController();control.current=ac;setBusy(true);setError('');try{await fn(ac.signal);}catch(e){setError(ac.signal.aborted?'Operación cancelada. Consulta los lotes aplicados antes de reanudar.':String(e));}finally{setBusy(false);}};
+ const run=async(fn:(signal:AbortSignal)=>Promise<void>)=>{if(busy||disabled)return;const ac=new AbortController();control.current=ac;setBusy(true);onBusyChange?.(true);setError('');try{await fn(ac.signal);}catch(e){setError(ac.signal.aborted?'Operación cancelada. Consulta los lotes aplicados antes de reanudar.':String(e));}finally{setBusy(false);onBusyChange?.(false);}};
  const load=(input:File)=>run(async signal=>{
   setPkg(null);setPreview(null);setBackupSaved(false);setDownloaded(false);setWord('');setResult(null);if(input.size>50*1024*1024)throw new Error('El archivo supera 50 MB.');
   setProgress({message:'Validando paquete de migración…',done:0,total:1});let content:string;if(input.name.toLowerCase().endsWith('.zip')){const zip=await JSZip.loadAsync(input);const entry=zip.file('migracion_crm_preparada.json');if(!entry)throw new Error('El ZIP no contiene migracion_crm_preparada.json.');content=await entry.async('string');if(content.length>50*1024*1024)throw new Error('El JSON descomprimido supera 50 MB.');}else content=await input.text();signal.throwIfAborted();const parsed=validateMigration(JSON.parse(content));
@@ -24,7 +24,7 @@ export function MigracionHistoricaView({disabled=false}:{disabled?:boolean}){
  const safety=()=>run(async signal=>{if(!pkg)return;setBackupSaved(false);setDownloaded(false);const file=await readBackup(signal,setProgress,false);signal.throwIfAborted();await download(new Blob([JSON.stringify(file)],{type:'application/json'}),'seguridad_antes_migracion_'+new Date().toISOString().slice(0,10)+'.json');await registerBackup(file,new TextEncoder().encode(JSON.stringify(file)).length,'seguridad');signal.throwIfAborted();setCurrent(file.collections);setPreview(prepareHistoricalMigration(pkg,file.collections,user!.email!));setDownloaded(true);await discardCheckpoint();setStatus('Respaldo de seguridad descargado; vista previa actualizada. Verifica que conservaste el archivo.');});
  const execute=()=>run(async signal=>{if(!pkg||!preview||!downloaded||!backupSaved||word!=='IMPORTAR')throw new Error('Completa el respaldo y escribe IMPORTAR.');setDownloaded(false);setBackupSaved(false);setWord('');await audit('INICIAR_MIGRACION',{idLote:pkg.idLote,archivo:filename,hash,pendientes:preview.pending,conflictos:preview.conflicts.length});
   const outcome=await restore(preview.file,current,Object.keys(preview.file.collections),'missing',false,false,signal,setProgress,'MIGRACION: '+filename);setResult(outcome);
-  if(outcome.estado==='Completada'&&pkg.colecciones.prospectos.some(p=>p.tipoProspecto==='Inactivos')){const ref=doc(db,'settings','catalogs');await runTransaction(db,async tx=>{const snap=await tx.get(ref);const types=snap.data()?.tiposProspecto||[];if(!types.includes('Inactivos'))tx.set(ref,{tiposProspecto:[...types,'Inactivos']},{merge:true});});}
+  if(outcome.estado==='Completada'&&pkg.colecciones.prospectos.some(p=>p.tipoProspecto==='Inactivos')){const ref=doc(db,'settings','catalogs');await runTransaction(db,async tx=>{const snap=await tx.get(ref);const types=snap.data()?.tiposProspecto||DEFAULT_SETTINGS.tiposProspecto;if(!types.includes('Inactivos'))tx.set(ref,{tiposProspecto:[...types,'Inactivos']},{merge:true});});}
   setResult(outcome);setStatus(`${outcome.estado}. Registros aplicados: ${outcome.aplicados}; pendientes: ${outcome.pendientes}.`);
   await audit('MIGRACION_HISTORICA',{idLote:pkg.idLote,archivo:filename,hash,resultado:outcome});setPreview(null);
  });

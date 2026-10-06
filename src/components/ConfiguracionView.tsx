@@ -1,3 +1,4 @@
+import { UnificarPropietarios } from './UnificarPropietarios';
 import React, { useState } from 'react';
 import {
   Settings,
@@ -459,6 +460,7 @@ export const ConfiguracionView: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-16">
+      {isAdmin && <UnificarPropietarios />}
       {/* Top Header */}
       <div>
         <div className="flex items-center gap-2 text-xs font-bold text-[#B8922A] uppercase tracking-wider mb-1">

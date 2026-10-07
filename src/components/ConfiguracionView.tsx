@@ -1,4 +1,3 @@
-import { AccesosView } from './AccesosView';
 import { UnificarPropietarios } from './UnificarPropietarios';
 import React, { useState } from 'react';
 import {
@@ -55,7 +54,7 @@ export const ConfiguracionView: React.FC = () => {
   const { userProfile, isSupervisor, isAdmin } = useAuth();
 
   // Tab navigation inside Configuración
-  const [activeTab, setActiveTab] = useState<'telemarketing' | 'usuarios' | 'catalogos' | 'datos' | 'comisiones'>('telemarketing');
+  const [activeTab, setActiveTab] = useState<'telemarketing' | 'catalogos' | 'datos' | 'comisiones'>('telemarketing');
 
   // New telemarketing agent input
   const [newAgentName, setNewAgentName] = useState('');
@@ -472,7 +471,7 @@ export const ConfiguracionView: React.FC = () => {
           Configuración del CRM
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Administración de la lista de telemarketing, usuarios y roles, catálogos editables y datos de prueba.
+          Administra el equipo de telemarketing, los catálogos y las comisiones. Los correos autorizados se gestionan en Usuarios y accesos.
         </p>
       </div>
 
@@ -514,18 +513,6 @@ export const ConfiguracionView: React.FC = () => {
         >
           <Headset className="w-4 h-4 text-[#B8922A]" />
           <span>Gestión de Telemarketing ({settings.telemarketingAgents.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('usuarios')}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold transition-all border-b-2 cursor-pointer ${
-            activeTab === 'usuarios'
-              ? 'border-[#0D2240] text-[#0D2240] bg-white shadow-xs'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Users className="w-4 h-4 text-[#B8922A]" />
-          <span>Usuarios y Roles</span>
         </button>
 
         <button
@@ -850,7 +837,6 @@ export const ConfiguracionView: React.FC = () => {
       )}
 
       {/* La lista autorizada es la única fuente de permisos. */}
-      {activeTab === 'usuarios' && <AccesosView />}
 
       {/* Tab: Catálogos Editables */}
       {activeTab === 'catalogos' && (

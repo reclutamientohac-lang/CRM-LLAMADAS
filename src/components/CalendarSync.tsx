@@ -7,7 +7,7 @@ import { useCRM } from '../context/CRMContext';
 import type { Cita } from '../types';
 import { CALENDAR_ID, CalendarError, calendarSyncRevision, syncCalendarEvent } from '../calendar/events';
 
-export function CalendarSync({ showExisting }: { showExisting: boolean }) {
+export function CalendarSync({ showExisting, showControls = true }: { showExisting: boolean; showControls?: boolean }) {
   const { user } = useAuth();
   const { citas } = useCRM();
   const [session, setSession] = useState<{ token: string; uid: string; until: number } | null>(null);
@@ -84,6 +84,7 @@ export function CalendarSync({ showExisting }: { showExisting: boolean }) {
     finally { setBusy(false); }
   };
   const unlinked = citas.filter(c => !c.idEventoCalendar && !c.calendarSyncRequested && ['Agendada', 'Reprogramada'].includes(c.estadoCita));
+  if (!showControls) return null;
   return <section className="mx-4 mt-3 rounded-xl border border-slate-200 bg-white p-4 text-sm" aria-label="Sincronización con Google Calendar">
     <div className="flex flex-wrap items-center justify-between gap-2"><strong>Google Calendar · AGENDA DE CITAS</strong><span>{connected ? 'Conectado en esta sesión' : 'Sin conexión'} · {pending.length} pendientes</span>
       <button className="rounded-lg bg-[#0D2240] px-3 py-2 text-white disabled:opacity-50" disabled={busy} onClick={connect}>{connected ? 'Renovar conexión' : 'Conectar Google Calendar'}</button></div>

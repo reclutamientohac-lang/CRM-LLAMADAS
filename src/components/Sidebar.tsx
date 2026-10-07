@@ -51,7 +51,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { userProfile, isSupervisor, isAdmin, telemarketingAgent, logout } = useAuth();
 
   const navItems: NavItem[] = [
-    { id: 'accesos', label: 'Accesos', icon: ShieldCheck, activeInStage1: true, adminOnly: true },
     {
       id: 'trabajo',
       label: 'Mi Trabajo',
@@ -102,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'reportes', label: 'Reportes', icon: BarChart3, activeInStage1: true,
     },
     {
-      id: 'consulta', label: 'Consulta Global', icon: Users, activeInStage1: true, supervisorOnly: true,
+      id: 'consulta', label: 'Buscador global', icon: Users, activeInStage1: true, supervisorOnly: true,
     },
     {
       id: 'respaldo',
@@ -111,6 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       activeInStage1: true,
       adminOnly: true,
     },
+    { id: 'accesos', label: 'Usuarios y accesos', icon: ShieldCheck, activeInStage1: true, adminOnly: true },
     {
       id: 'configuracion',
       label: 'Configuración',

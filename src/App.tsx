@@ -146,13 +146,13 @@ function MainLayout() {
       case 'dashboard':
         return 'Dashboard & Métricas';
       case 'accesos':
-        return 'Control de Accesos';
+        return 'Usuarios y accesos';
       case 'ventas':
         return 'Ventas / Bonos';
       case 'individual':
         return 'Reporte individual';
       case 'consulta':
-        return 'Consulta Global';
+        return 'Buscador global';
       case 'reportes':
         return 'Reportes';
       case 'respaldo':
@@ -237,7 +237,7 @@ function MainLayout() {
         {/* Citas de Hoy Alert Banner & Browser Notifications */}
         <CitasHoyBanner onSelectProspecto={(p) => setDrawerProspecto(p)} />
         {isAdmin && <BackupBanner onNavigate={() => setCurrentTab('respaldo')} />}
-        <CalendarSync showExisting={currentTab === 'agenda'} />
+        <CalendarSync showExisting={currentTab === 'agenda'} showControls={currentTab === 'agenda'} />
 
         {/* Dynamic View Body */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">

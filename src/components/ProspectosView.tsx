@@ -55,6 +55,8 @@ const INITIAL_FILTERS: FilterState = {
 export const ProspectosView: React.FC = () => {
   const {
     prospectos,
+    citas,
+    ventas,
     settings,
     logsCargas,
     loading,
@@ -135,15 +137,14 @@ export const ProspectosView: React.FC = () => {
 
       // 2. Búsqueda por texto (nombre, teléfono o ID)
       if (filters.search.trim()) {
-        const query = filters.search.toLowerCase().trim();
-        const matchName = p.nombre.toLowerCase().includes(query);
-        const matchPhone = p.telefono.includes(query);
-        const matchId = p.id.toLowerCase().includes(query);
-        const matchProp = p.propietario.toLowerCase().includes(query);
-        const matchLote = (p.idLote || '').toLowerCase().includes(query);
-        if (!matchName && !matchPhone && !matchId && !matchProp && !matchLote) {
-          return false;
-        }
+        const normalize = (v: string) => (v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        const query = normalize(filters.search);
+        const phone = /^[\d\s()+.\-]+$/.test(query) ? query.replace(/\D/g, '') : '';
+        const match = [p.nombre,p.id,p.propietario,p.idLote || '',p.telemarketing].some(v=>normalize(v).includes(query))
+          || !!phone && p.telefono.replace(/\D/g,'').includes(phone)
+          || citas.some(c=>c.idProspecto===p.id && [c.id,c.asunto].some(v=>normalize(v).includes(query)))
+          || isSupervisor && ventas.some(v=>v.idProspecto===p.id && normalize(v.id).includes(query));
+        if (!match) return false;
       }
 
       // 3. Telemarketing
@@ -196,7 +197,7 @@ export const ProspectosView: React.FC = () => {
 
       return true;
     });
-  }, [prospectos, filters]);
+  }, [prospectos, citas, ventas, isSupervisor, filters]);
 
   // Sorting logic
   const sortedProspectos = useMemo(() => {
@@ -397,7 +398,7 @@ export const ProspectosView: React.FC = () => {
                 setFilters((p) => ({ ...p, search: e.target.value }));
                 setCurrentPage(1);
               }}
-              placeholder="Buscar por nombre, teléfono o ID (ej: PROS-2026...)..."
+              placeholder="Buscar nombre, teléfono, propietario, telemarketing o cita…"
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0D2240] focus:ring-2 focus:ring-[#0D2240]/10 text-sm outline-none transition-all"
             />
             {filters.search && (

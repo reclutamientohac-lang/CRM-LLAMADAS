@@ -154,7 +154,7 @@ function MainLayout() {
       case 'consulta':
         return 'Buscador global';
       case 'reportes':
-        return 'Reportes';
+        return 'Resumen de gestión';
       case 'respaldo':
         return 'Respaldo';
       default:
@@ -276,7 +276,7 @@ function MainLayout() {
           )}
           {currentTab === 'reportes' && isAdmin && <ReportesView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
-          {currentTab === 'consulta' && isAdmin && <ConsultaGlobalView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'consulta' && isAdmin && <ProspectosView />}
           {currentTab === 'accesos' && isAdmin && <AccesosView />}
           {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
           {currentTab !== 'trabajo' &&

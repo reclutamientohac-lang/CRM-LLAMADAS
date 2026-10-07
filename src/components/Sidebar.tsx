@@ -98,10 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       activeInStage1: true,
     },
     {
-      id: 'reportes', label: 'Reportes', icon: BarChart3, activeInStage1: true,
-    },
-    {
-      id: 'consulta', label: 'Buscador global', icon: Users, activeInStage1: true, supervisorOnly: true,
+      id: 'reportes', label: 'Resumen de gestión', icon: BarChart3, activeInStage1: true,
     },
     {
       id: 'respaldo',

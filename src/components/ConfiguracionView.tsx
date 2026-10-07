@@ -1,3 +1,4 @@
+import { AccesosView } from './AccesosView';
 import { UnificarPropietarios } from './UnificarPropietarios';
 import React, { useState } from 'react';
 import {
@@ -101,7 +102,7 @@ export const ConfiguracionView: React.FC = () => {
         <Shield className="w-16 h-16 text-rose-500 mx-auto" />
         <h2 className="text-xl font-bold text-slate-800">Acceso Restringido</h2>
         <p className="text-sm text-slate-500">
-          Solo los usuarios con rol de <strong>Supervisor</strong> pueden acceder al panel de configuración.
+          Solo los usuarios con rol de <strong>Administrador</strong> pueden acceder al panel de configuración.
         </p>
       </div>
     );
@@ -848,108 +849,8 @@ export const ConfiguracionView: React.FC = () => {
         </div>
       )}
 
-      {/* Tab: Gestión de Usuarios y Roles */}
-      {activeTab === 'usuarios' && (
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200/90 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
-            <div>
-              <h2 className="text-lg font-extrabold text-[#0D2240]">
-                Control de Usuarios y Roles (RBAC)
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                El Supervisor puede ver y editar todos los prospectos. Las Telemarketings solo ven sus leads asignados.
-              </p>
-            </div>
-            <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg">
-              {usersList.length} usuarios registrados
-            </span>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-[#0D2240] text-white uppercase tracking-wider font-bold">
-                  <th className="py-3.5 px-4">Usuario</th>
-                  <th className="py-3.5 px-4">Correo</th>
-                  <th className="py-3.5 px-4">Rol en el CRM</th>
-                  <th className="py-3.5 px-4">Vinculación Telemarketing</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
-                {usersList.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-8 text-center text-slate-400">
-                      No hay usuarios registrados adicionales.
-                    </td>
-                  </tr>
-                ) : (
-                  usersList.map((u) => {
-                    const isCurrentUser = u.uid === userProfile?.uid;
-
-                    return (
-                      <tr key={u.uid} className="hover:bg-slate-50 transition-colors">
-                        <td className="py-3.5 px-4 font-bold text-slate-900">
-                          <div className="flex items-center gap-2">
-                            <span>{u.displayName || 'Sin nombre'}</span>
-                            {isCurrentUser && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#B8922A]/15 text-[#9a781f] font-bold">
-                                Tú
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="py-3.5 px-4 font-mono text-slate-600">
-                          {u.email}
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <select
-                            value={u.role}
-                            disabled={isCurrentUser && u.role === 'Supervisor'}
-                            onChange={(e) =>
-                              handleUserRoleChange(u.uid, e.target.value as Role, u.telemarketingAgent)
-                            }
-                            className={`px-3 py-1.5 rounded-lg border font-bold text-xs ${
-                              u.role === 'Supervisor'
-                                ? 'bg-[#0D2240]/10 text-[#0D2240] border-[#0D2240]/30'
-                                : 'bg-sky-50 text-sky-800 border-sky-300'
-                            }`}
-                          >
-                            <option value="Supervisor">Supervisor (Control total)</option>
-                            <option value="Telemarketing">Telemarketing (Solo lo asignado)</option>
-                          </select>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          {u.role === 'Telemarketing' ? (
-                            <select
-                              value={u.telemarketingAgent || ''}
-                              onChange={(e) => handleUserAgentChange(u.uid, e.target.value)}
-                              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white font-semibold text-xs focus:border-[#0D2240]"
-                            >
-                              <option value="">Seleccionar agente...</option>
-                              {settings.telemarketingAgents
-                                .filter((a) => a.active)
-                                .map((ag) => (
-                                  <option key={ag.id} value={ag.name}>
-                                    Agente: {ag.name}
-                                  </option>
-                                ))}
-                            </select>
-                          ) : (
-                            <span className="text-slate-400 italic">No aplica (Supervisión global)</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* La lista autorizada es la única fuente de permisos. */}
+      {activeTab === 'usuarios' && <AccesosView />}
 
       {/* Tab: Catálogos Editables */}
       {activeTab === 'catalogos' && (

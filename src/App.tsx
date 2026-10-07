@@ -1,3 +1,4 @@
+import { canAccessTab } from './accessPolicy';
 import './stage78/style.css';
 import { CalendarSync } from './components/CalendarSync';
 import { ReportesView } from './components/ReportesView';
@@ -80,6 +81,16 @@ function MainLayout() {
     const interval = setInterval(updateTime, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!canAccessTab(currentTab, isAdmin)) setCurrentTab('trabajo');
+    if (!isAuthorized) {
+      setModalLlamadaProspecto(null);
+      setModalResultadoCita(null);
+      setSelectedCitaDetail(null);
+      setDrawerProspecto(null);
+    }
+  }, [isAdmin, isAuthorized, currentTab]);
 
   if (authLoading) {
     return (
@@ -208,7 +219,7 @@ function MainLayout() {
                 </div>
                 <div className="text-[10px] text-slate-500">
                   {isSupervisor ? (
-                    <span className="text-[#B8922A] font-bold">Supervisor</span>
+                    <span className="text-[#B8922A] font-bold">Administrador</span>
                   ) : (
                     <span className="text-sky-600 font-semibold">
                       Agente: {telemarketingAgent || 'Sin asignar'}
@@ -225,7 +236,7 @@ function MainLayout() {
 
         {/* Citas de Hoy Alert Banner & Browser Notifications */}
         <CitasHoyBanner onSelectProspecto={(p) => setDrawerProspecto(p)} />
-        <BackupBanner onNavigate={() => setCurrentTab('respaldo')} />
+        {isAdmin && <BackupBanner onNavigate={() => setCurrentTab('respaldo')} />}
         <CalendarSync showExisting={currentTab === 'agenda'} />
 
         {/* Dynamic View Body */}
@@ -237,7 +248,7 @@ function MainLayout() {
             />
           )}
           {currentTab === 'prospectos' && <ProspectosView />}
-          {currentTab === 'cargar' && <CargarProspectosView />}
+          {currentTab === 'cargar' && isAdmin && <CargarProspectosView />}
           {currentTab === 'agenda' && (
             <AgendaView
               onOpenRegistrarResultado={(c) => setModalResultadoCita(c)}
@@ -251,23 +262,23 @@ function MainLayout() {
               onOpenCita={(c) => setSelectedCitaDetail(c)}
             />
           )}
-          {currentTab === 'ventas' && (
+          {currentTab === 'ventas' && isAdmin && (
             <VentasBonosView
               onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
             />
           )}
-          {currentTab === 'individual' && (
+          {currentTab === 'individual' && isAdmin && (
             <ReporteIndividualView
               onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
             />
           )}
-          {currentTab === 'reportes' && <ReportesView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'reportes' && isAdmin && <ReportesView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
-          {currentTab === 'consulta' && isSupervisor && <ConsultaGlobalView onOpenProspecto={setDrawerProspecto} />}
-          {currentTab === 'accesos' && <AccesosView />}
-          {currentTab === 'configuracion' && <ConfiguracionView />}
+          {currentTab === 'consulta' && isAdmin && <ConsultaGlobalView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'accesos' && isAdmin && <AccesosView />}
+          {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
           {currentTab !== 'trabajo' &&
             currentTab !== 'prospectos' &&
             currentTab !== 'cargar' &&

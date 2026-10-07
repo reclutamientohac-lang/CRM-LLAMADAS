@@ -67,7 +67,7 @@ service cloud.firestore {
     }
     // Extensión explícita del registro. Solo colecciones nuevas; las existentes conservan sus reglas.
     match /{collectionName}/{id} {
-      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones']);
+      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones','calendarJobs']);
     }
 
     // Colección: usuariosAutorizados
@@ -100,7 +100,7 @@ service cloud.firestore {
     // Colección: settings
     match /settings/{settingId} {
       allow read: if esAutorizado();
-      allow write: if (settingId in ['backupParameters','backupRegistry']) ? esAdmin() : esSupervisor();
+      allow write: if settingId != 'calendarCentral' && ((settingId in ['backupParameters','backupRegistry']) ? esAdmin() : esSupervisor());
     }
 
     // Colección: logCargas
@@ -116,11 +116,23 @@ service cloud.firestore {
       allow delete: if esSupervisor();
     }
 
+    function centralActiva() {
+      return exists(/databases/$(database)/documents/settings/calendarCentral) &&
+        get(/databases/$(database)/documents/settings/calendarCentral).data.enabled == true;
+    }
+    function camposDeProcesamiento() {
+      return ['calendarSyncDone','calendarCentralDone','calendarSyncLease','calendarSyncLeaseUntil'];
+    }
+    // Cola privada: solo el SDK del servidor; tampoco entra en respaldos extensibles.
+    match /calendarJobs/{jobId} { allow read, write: if false; }
+
     // Colección: citas
     match /citas/{citaId} {
       allow read: if esSupervisor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esPropietarioAsignado(request.resource.data);
-      allow update: if esSupervisor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data));
+      allow create: if (esSupervisor() || esPropietarioAsignado(request.resource.data)) &&
+        (!centralActiva() || !request.resource.data.keys().hasAny(camposDeProcesamiento()));
+      allow update: if (esSupervisor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data))) &&
+        (!centralActiva() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(camposDeProcesamiento()));
       allow delete: if esSupervisor();
     }
 

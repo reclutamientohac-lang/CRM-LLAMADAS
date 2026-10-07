@@ -83,11 +83,12 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
 
   // Filtros de fecha (aplicados a la FECHA DE LA CITA)
   const initialPreset = useMemo(() => getDateRangePreset('mes'), []);
-  const [desde, setDesde] = useState<string>(initialPreset.desde);
-  const [hasta, setHasta] = useState<string>(initialPreset.hasta);
-  const [activePreset, setActivePreset] = useState<PresetRango | 'custom'>('mes');
+  const [desde, setDesde] = useState<string>('');
+  const [hasta, setHasta] = useState<string>('');
+  const [activePreset, setActivePreset] = useState<PresetRango | 'custom' | 'todos'>('todos');
 
   const [filtroTelemarketing, setFiltroTelemarketing] = useState<string>('TODAS');
+  const [filtroPago, setFiltroPago] = useState('TODOS');
   const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
@@ -119,8 +120,8 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
 
   // Lista de agentes configuradas
   const activeTelemarketings = useMemo(() => {
-    return settings.telemarketingAgents.filter((a) => a.active);
-  }, [settings.telemarketingAgents]);
+    return [...new Set([...settings.telemarketingAgents.map(a=>a.name),...ventas.map(v=>v.telemarketing)].filter(Boolean))].sort().map(name=>({id:name,name}));
+  }, [settings.telemarketingAgents, ventas]);
 
   // Sincronizar estado local con ventas remotas si no están modificadas
   useEffect(() => {
@@ -193,9 +194,13 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const fechaParaFiltro = cita?.fechaCita || v.fechaReporte;
 
       // 1. Rango por FECHA DE LA CITA
-      if (!isInDateRangeLA(fechaParaFiltro, desde, hasta)) {
+      const date = getDateInLA(fechaParaFiltro);
+      if (activePreset !== 'todos' && ((!date && (desde || hasta)) || (desde && date < desde) || (hasta && date > hasta))) {
         return false;
       }
+
+      if (filtroPago === 'Pagada' && v.estadoPagoHistorico !== 'Pagada') return false;
+      if (filtroPago === 'Por pagar' && !(v.estado !== 'Cancelada' && v.estadoPagoHistorico !== 'Pagada' && (editableRows[v.id]?.bonoPagable ?? v.bonoPagable ?? 0) > 0)) return false;
 
       // 2. Filtro Telemarketing
       if (filtroTelemarketing !== 'TODAS') {
@@ -233,7 +238,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const fB = cB?.fechaCita || b.fechaReporte;
       return fB.localeCompare(fA);
     });
-  }, [ventas, citasMap, prospectosMap, desde, hasta, filtroTelemarketing, filtroEstado, searchTerm, editableRows]);
+  }, [ventas, citasMap, prospectosMap, desde, hasta, filtroTelemarketing, filtroEstado, filtroPago, activePreset, searchTerm, editableRows]);
 
   // Actualizar campo de fila localmente con cálculo reactivo inmediato
   const handleRowChange = (
@@ -506,6 +511,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           Estado: st,
           'Bono Generado ($)': bGen !== null ? bGen : 0,
           'Bono Pagable ($)': bPag,
+          'Estado del pago': v.estadoPagoHistorico === 'Pagada' ? 'Pagada (histórica)' : 'Sin pago registrado',
+          'Bono pagado histórico ($)': v.bonoPagadoHistorico ?? null,
+          'Fecha de pago histórico': v.fechaPagoHistorico || 'No registrada',
           Observación: r?.observacion || v.observacion || '',
           'Última Actualización': formatDateTimeLA(v.ultimaActualizacion),
         };
@@ -530,7 +538,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       });
 
       exportDashboardDrillDownToExcel(
-        `Ventas_Bonos_${formatDateDisplay(desde)}_al_${formatDateDisplay(hasta)}`,
+        activePreset === 'todos' ? 'Ventas_Bonos_Todo_el_historial' : `Ventas_Bonos_${desde || 'inicio'}_al_${hasta || 'hoy'}`,
         rows
       );
     } catch (err: any) {
@@ -710,6 +718,11 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         </div>
       </div>
 
+      <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4">
+        <strong>Bonos pagados históricos: {filteredVentasList.filter(v=>v.estadoPagoHistorico==='Pagada').length} registros · {formatCurrency(filteredVentasList.filter(v=>v.estadoPagoHistorico==='Pagada').reduce((sum,v)=>sum+(v.bonoPagadoHistorico||0),0))}</strong>
+        <p className="text-xs mt-1">Según los filtros seleccionados. Los pagos históricos no generan un nuevo saldo por pagar. Una fecha de cita no es una fecha de pago.</p>
+        <button className="underline text-sm mt-2" onClick={()=>{setActivePreset('todos');setDesde('');setHasta('');setFiltroPago('Pagada');setFiltroEstado('TODOS');setFiltroTelemarketing('TODAS');setSearchTerm('');}}>Ver todos los bonos pagados</button>
+      </div>
       {/* FILTROS */}
       <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/90 space-y-4">
         {/* Atajos de fecha */}
@@ -723,6 +736,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-slate-100 text-xs font-bold" aria-pressed={activePreset==='todos'} onClick={()=>{setActivePreset('todos');setDesde('');setHasta('');}}>Todo el historial</button>
             {[
               { id: 'hoy', label: 'Hoy' },
               { id: 'ayer', label: 'Ayer' },
@@ -751,7 +765,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         </div>
 
         {/* Inputs de filtros */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
               Fecha Cita Desde:
@@ -816,6 +830,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
             </select>
           </div>
 
+          <div><label className="block text-[11px] font-bold text-slate-600 mb-1" htmlFor="estado-pago">Pago del bono</label><select id="estado-pago" className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 text-xs" value={filtroPago} onChange={e=>setFiltroPago(e.target.value)}><option value="TODOS">Todos los pagos</option><option value="Pagada">Pagados históricos</option><option value="Por pagar">Con saldo por pagar</option></select></div>
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
               Buscar Prospecto / ID:

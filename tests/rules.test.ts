@@ -52,3 +52,23 @@ test('revocar el correo bloquea próximas lecturas',async()=>{
  await assertFails(getDoc(doc(agent,'prospectos','mine')));
  await assertSucceeds(updateDoc(doc(admin,'usuariosAutorizados','agent@example.com'),{activo:true}));
 });
+
+test('cola central privada y configuración solo del servidor incluso con registro de respaldo',async()=>{
+ await assertFails(setDoc(doc(admin,'settings','calendarCentral'),{enabled:true}));
+ await assertFails(setDoc(doc(agent,'settings','calendarCentral'),{enabled:true}));
+ await setDoc(doc(admin,'settings','backupRegistry'),{collections:['calendarJobs']});
+ await assertFails(setDoc(doc(admin,'calendarJobs','fake'),{state:'synced'}));
+ await assertFails(getDocs(collection(admin,'calendarJobs')));
+ await assertFails(getDocs(collection(agent,'calendarJobs')));
+});
+test('modo central bloquea sincronizadores antiguos pero permite crear, reprogramar y cancelar citas',async()=>{
+ await env.withSecurityRulesDisabled(async c=>{await setDoc(doc(c.firestore(),'settings','calendarCentral'),{enabled:true});});
+ const ref=doc(agent,'citas','central-agent');
+ await assertSucceeds(setDoc(ref,{idProspecto:'mine',estadoCita:'Agendada',calendarSyncRequested:'a',idEventoCalendar:''}));
+ await assertSucceeds(updateDoc(ref,{estadoCita:'Reprogramada',calendarSyncRequested:'b',horaCita:'3:00 PM'}));
+ await assertFails(updateDoc(ref,{calendarSyncLeaseUntil:12345}));
+ await assertFails(updateDoc(doc(admin,'citas','central-agent'),{calendarSyncDone:'b'}));
+ await assertSucceeds(updateDoc(ref,{estadoCita:'Cancelada',calendarSyncRequested:'c'}));
+ await assertSucceeds(getDoc(doc(agent,'settings','calendarCentral')));
+ await env.withSecurityRulesDisabled(async c=>{await deleteDoc(doc(c.firestore(),'settings','calendarCentral'));});
+});

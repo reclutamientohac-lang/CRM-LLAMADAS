@@ -20,7 +20,7 @@ export function CalendarSync({ showExisting, showControls = true }: { showExisti
   const centralAction = async (action: 'activate' | 'check') => {
     setBusy(true); setMessage('');
     try {
-      const call = httpsCallable(getFunctions(auth.app, import.meta.env.VITE_CALENDAR_FUNCTION_REGION || 'us-central1'), 'calendarCentralControl');
+      const call = httpsCallable(getFunctions(auth.app, import.meta.env.VITE_CALENDAR_FUNCTION_REGION || 'us-east1'), 'calendarCentralControl');
       await call({ action });
       setMessage(action === 'activate' ? 'Conexión central activada. Las citas se sincronizan aunque cierres la app.' : 'Permisos del calendario verificados.');
     } catch (e) {

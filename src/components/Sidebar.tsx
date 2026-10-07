@@ -15,6 +15,7 @@ import {
   X,
   PhoneCall,
 } from 'lucide-react';
+import { canAccessTab } from '../accessPolicy';
 import { TabId } from '../types';
 import { useAuth } from '../context/AuthContext';
 
@@ -50,6 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { userProfile, isSupervisor, isAdmin, telemarketingAgent, logout } = useAuth();
 
   const navItems: NavItem[] = [
+    { id: 'accesos', label: 'Accesos', icon: ShieldCheck, activeInStage1: true, adminOnly: true },
     {
       id: 'trabajo',
       label: 'Mi Trabajo',
@@ -166,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {isSupervisor ? (
                   <span className="inline-flex items-center gap-1 text-[#B8922A] font-semibold">
                     <ShieldCheck className="w-3 h-3" />
-                    <span>Supervisor</span>
+                    <span>Administrador</span>
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-sky-400 font-semibold">
@@ -187,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         {navItems.map((item) => {
           // If supervisorOnly and not supervisor, hide or disable
-          if (item.adminOnly && !isAdmin || item.supervisorOnly && !isSupervisor) {
+          if (!canAccessTab(item.id, isAdmin)) {
             return null;
           }
 

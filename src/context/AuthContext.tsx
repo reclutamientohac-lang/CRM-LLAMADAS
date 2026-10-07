@@ -74,6 +74,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubscribeAuthorizedDoc = null;
       }
 
+      // Revocar el perfil previo antes de resolver los permisos de otra cuenta.
+      setIsAuthorized(false);
+      setIsAdmin(false);
+      setUserProfile(null);
+      setLoading(true);
       setUser(currentUser);
 
       if (!currentUser) {
@@ -126,10 +131,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         async (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
-            const activo = Boolean(data.activo);
+            const activo = data.activo === true && data.rol === 'Telemarketing' && typeof data.telemarketingVinculada === 'string' && data.telemarketingVinculada.trim() !== '' && data.telemarketingVinculada !== 'SIN ASIGNAR';
 
             if (activo) {
-              const role: Role = data.rol === 'Supervisor' ? 'Supervisor' : 'Telemarketing';
+              const role: Role = 'Telemarketing';
               const agent: string = role === 'Telemarketing' ? (data.telemarketingVinculada || '') : '';
 
               const profile: UserProfile = {
@@ -301,7 +306,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthError(null);
   };
 
-  const isSupervisor = isAdmin || userProfile?.role === 'Supervisor';
+  // Compatibilidad con componentes existentes: privilegios globales solo del administrador.
+  const isSupervisor = isAdmin;
   const telemarketingAgent = userProfile?.telemarketingAgent || '';
 
   return (

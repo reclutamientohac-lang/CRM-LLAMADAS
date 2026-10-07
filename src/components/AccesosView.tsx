@@ -536,7 +536,7 @@ export const AccesosView: React.FC = () => {
                                 onClick={() => {
                                   setEditingUser(u);
                                   setFormNombre(u.nombre);
-                                  setFormRol(u.rol);
+                                  setFormRol('Telemarketing');
                                   setFormTelemarketing(u.telemarketingVinculada || '');
                                   setModalError(null);
                                 }}
@@ -782,7 +782,6 @@ export const AccesosView: React.FC = () => {
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
                   <option value="Telemarketing">Telemarketing (Atención de llamadas)</option>
-                  <option value="Supervisor">Supervisor (Cargas, reportes y toda la base)</option>
                 </select>
               </div>
 
@@ -884,7 +883,6 @@ export const AccesosView: React.FC = () => {
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
                   <option value="Telemarketing">Telemarketing</option>
-                  <option value="Supervisor">Supervisor</option>
                 </select>
               </div>
 
@@ -971,7 +969,6 @@ export const AccesosView: React.FC = () => {
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
                   <option value="Telemarketing">Telemarketing</option>
-                  <option value="Supervisor">Supervisor</option>
                 </select>
               </div>
 

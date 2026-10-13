@@ -19,18 +19,29 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
   const { prospectos, gestiones, citas, ventas, retroalimentaciones, loading, error } = useCRM();
   const { userProfile, isAdmin, isAuthorized, telemarketingAgent } = useAuth();
   const [agent, setAgent] = useState('');
+  const [owner, setOwner] = useState('');
   const [search, setSearch] = useState('');
   const [includeArchived, setIncludeArchived] = useState(true);
   const [limits, setLimits] = useState<Partial<Record<PipelineStage, number>>>({});
   const global = isAuthorized && (isAdmin || userProfile?.role === 'Supervisor' || userProfile?.role === 'Distribuidor');
   const contacts = useMemo(() => isAuthorized ? buildPipeline({ prospectos, gestiones, citas, ventas, retroalimentaciones }, { global, agent: telemarketingAgent }) : [], [prospectos, gestiones, citas, ventas, retroalimentaciones, global, isAuthorized, telemarketingAgent]);
   const agents = useMemo(() => Array.from(new Set(contacts.map(c => c.prospecto.telemarketing?.trim() || 'SIN ASIGNAR'))).sort((a, b) => a.localeCompare(b, 'es')), [contacts]);
+  const owners = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const { prospecto } of contacts) {
+      const label = (prospecto.propietario || '').trim().replace(/\s+/g, ' ');
+      labels.set(label ? normalize(label) : '__sin_propietario__', label || 'Sin propietario');
+    }
+    return Array.from(labels, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label, 'es'));
+  }, [contacts]);
   const visible = useMemo(() => contacts.filter(({ prospecto: p }) => {
     if (!includeArchived && p.archivado) return false;
     if (global && agent && normalize(p.telemarketing || 'SIN ASIGNAR') !== normalize(agent)) return false;
+    const ownerKey = normalize((p.propietario || '').trim().replace(/\s+/g, ' ')) || '__sin_propietario__';
+    if (owner && ownerKey !== owner) return false;
     const query = normalize(search);
     return !query || normalize([p.nombre, p.telefono, p.propietario, p.ciudadZona].join(' ')).includes(query);
-  }).sort((a, b) => (b.prospecto.fechaRecepcion || '').localeCompare(a.prospecto.fechaRecepcion || '') || a.prospecto.nombre.localeCompare(b.prospecto.nombre, 'es')), [contacts, includeArchived, global, agent, search]);
+  }).sort((a, b) => (b.prospecto.fechaRecepcion || '').localeCompare(a.prospecto.fechaRecepcion || '') || a.prospecto.nombre.localeCompare(b.prospecto.nombre, 'es')), [contacts, includeArchived, global, agent, owner, search]);
   const groups = useMemo(() => PIPELINE_STAGES.map(stage => ({ ...stage, rows: visible.filter(c => c.stage === stage.id).sort((a, b) => stage.id === 'sin-llamar' ? ingresoReciente(b.prospecto) - ingresoReciente(a.prospecto) : 0) })), [visible]);
   const total = visible.length;
   const appointments = visible.filter(c => c.citas > 0 || c.ventas > 0).length;
@@ -51,6 +62,7 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
     <div className="flex flex-wrap items-end gap-4 bg-white rounded-2xl border border-slate-200 p-4">
       <label className="flex-1 min-w-48"><span className="block text-xs font-bold text-slate-600 mb-2">Buscar contacto</span><div className="relative"><Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" /><input type="search" value={search} onChange={e => { setSearch(e.target.value); reset(); }} placeholder="Nombre, teléfono o propietario" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm" /></div></label>
       {global && <label><span className="block text-xs font-bold text-slate-600 mb-2">Telemarketing</span><select value={agent} onChange={e => { setAgent(e.target.value); reset(); }} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm"><option value="">Todas las agentes</option>{agents.map(a => <option key={a} value={a}>{a}</option>)}</select></label>}
+      <label><span className="block text-xs font-bold text-slate-600 mb-2">Propietario</span><select value={owner} onChange={e => { setOwner(e.target.value); reset(); }} className="max-w-64 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"><option value="">Todos los propietarios</option>{owners.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
       {!global && <p className="text-sm font-semibold text-slate-600 py-3">Cartera: {telemarketingAgent || 'Sin asignar'}</p>}
       <label className="flex items-center gap-2 text-sm text-slate-600 py-3"><input type="checkbox" checked={includeArchived} onChange={e => { setIncludeArchived(e.target.checked); reset(); }} />Incluir archivados</label>
     </div>
@@ -68,6 +80,7 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
                 <div className="flex justify-between gap-2"><span className="font-bold text-sm text-[#0D2240] break-words">{row.prospecto.nombre}</span><ArrowUpRight className="w-4 h-4 text-slate-400 shrink-0" /></div>
                 <p className="text-xs text-slate-500 mt-1">{row.prospecto.telefono || 'Sin teléfono'}</p>
                 <p className="flex items-center gap-1 text-xs text-slate-600 mt-3"><Users className="w-3 h-3" />{row.prospecto.telemarketing || 'SIN ASIGNAR'}</p>
+                <p className="text-xs text-slate-500 mt-1 break-words">Propietario: {row.prospecto.propietario?.trim() || 'Sin propietario'}</p>
                 <div className="flex flex-wrap gap-2 mt-3 text-xs text-slate-500">
                   <span className="inline-flex items-center gap-1" title={`${row.llamadas} llamadas`} aria-label={`${row.llamadas} llamadas`}><Phone className="w-3 h-3" />{row.llamadas}</span>
                   <span className="inline-flex items-center gap-1" title={`${row.citas} citas`} aria-label={`${row.citas} citas`}><Calendar className="w-3 h-3" />{row.citas}</span>

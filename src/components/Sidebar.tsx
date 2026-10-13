@@ -52,7 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { userProfile, isSupervisor, isAdmin, telemarketingAgent, logout } = useAuth();
 
   const navItems: NavItem[] = [
-    { id: 'pipeline', label: 'Pipeline', icon: Columns3, activeInStage1: true },
     {
       id: 'trabajo',
       label: 'Mi Trabajo',
@@ -60,6 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       activeInStage1: true,
       badge: seguimientosCount > 0 ? seguimientosCount : undefined,
     },
+    { id: 'pipeline', label: 'Pipeline', icon: Columns3, activeInStage1: true },
     {
       id: 'prospectos',
       label: 'Prospectos',

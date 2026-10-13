@@ -1,3 +1,4 @@
+import { PipelineView } from './components/PipelineView';
 import { canAccessTab, getDefaultTabForRole } from './accessPolicy';
 import './stage78/style.css';
 import { CalendarSync } from './components/CalendarSync';
@@ -137,6 +138,8 @@ function MainLayout() {
     switch (tab) {
       case 'trabajo':
         return 'Mi Trabajo (Telemarketing)';
+      case 'pipeline':
+        return 'Pipeline de contactos';
       case 'prospectos':
         return 'Prospectos';
       case 'cargar':
@@ -246,6 +249,7 @@ function MainLayout() {
 
         {/* Dynamic View Body */}
         <main className="flex-1 p-2.5 sm:p-4 lg:p-8 max-w-7xl w-full mx-auto">
+          {currentTab === 'pipeline' && canAccessTab('pipeline', userProfile?.role, isAdmin) && <PipelineView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'trabajo' && canAccessTab('trabajo', userProfile?.role, isAdmin) && (
             <MiTrabajoView
               onOpenLlamadaModal={(p) => setModalLlamadaProspecto(p)}
@@ -284,7 +288,7 @@ function MainLayout() {
           {currentTab === 'consulta' && isAdmin && <ProspectosView />}
           {currentTab === 'accesos' && isAdmin && <AccesosView />}
           {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
-          {currentTab !== 'trabajo' &&
+          {currentTab !== 'pipeline' && currentTab !== 'trabajo' &&
             currentTab !== 'prospectos' &&
             currentTab !== 'cargar' &&
             currentTab !== 'agenda' &&
@@ -376,3 +380,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+

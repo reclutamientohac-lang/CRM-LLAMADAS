@@ -240,6 +240,7 @@ export interface AppSettings {
 export type TabId =
   | 'trabajo'
   | 'prospectos'
+  | 'pipeline'
   | 'cargar'
   | 'agenda'
   | 'accesos'
@@ -502,4 +503,5 @@ export interface AgendaHistoricaImportItem {
   motivoDuplicada?: string;
   esNuevoProspecto?: boolean;
 }
+
 

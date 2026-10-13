@@ -2,7 +2,7 @@ import type { TabId, Role } from './types';
 
 export const TELEMARKETING_TABS: readonly TabId[] = [
   'trabajo',
-  'prospectos',
+  'prospectos', 'pipeline',
   'cargar',
   'agenda',
   'dashboard',
@@ -10,7 +10,7 @@ export const TELEMARKETING_TABS: readonly TabId[] = [
 ];
 
 export const DISTRIBUIDOR_TABS: readonly TabId[] = [
-  'prospectos',
+  'prospectos', 'pipeline',
   'cargar',
   'agenda',
   'dashboard',
@@ -39,3 +39,4 @@ export function getDefaultTabForRole(role?: Role | string, isAdmin = false): Tab
   }
   return 'trabajo';
 }
+

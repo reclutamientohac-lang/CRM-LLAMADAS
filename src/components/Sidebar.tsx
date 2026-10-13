@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Users,
+  Columns3,
   UserPlus,
   Settings,
   Calendar,
@@ -51,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { userProfile, isSupervisor, isAdmin, telemarketingAgent, logout } = useAuth();
 
   const navItems: NavItem[] = [
+    { id: 'pipeline', label: 'Pipeline', icon: Columns3, activeInStage1: true },
     {
       id: 'trabajo',
       label: 'Mi Trabajo',
@@ -290,3 +292,4 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </>
   );
 };
+

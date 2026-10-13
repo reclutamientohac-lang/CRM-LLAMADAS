@@ -6,6 +6,15 @@ import { buildPipeline, PIPELINE_STAGES, type PipelineStage } from '../pipeline'
 import type { Prospecto } from '../types';
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('es');
+
+const ingresoReciente = (p: Prospecto) => {
+  for (const value of [p.creadoEn, p.fechaRecepcion]) {
+    const time = value ? Date.parse(value) : NaN;
+    if (Number.isFinite(time)) return time;
+  }
+  return 0;
+};
+
 export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospecto) => void }) {
   const { prospectos, gestiones, citas, ventas, retroalimentaciones, loading, error } = useCRM();
   const { userProfile, isAdmin, isAuthorized, telemarketingAgent } = useAuth();
@@ -22,7 +31,7 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
     const query = normalize(search);
     return !query || normalize([p.nombre, p.telefono, p.propietario, p.ciudadZona].join(' ')).includes(query);
   }).sort((a, b) => (b.prospecto.fechaRecepcion || '').localeCompare(a.prospecto.fechaRecepcion || '') || a.prospecto.nombre.localeCompare(b.prospecto.nombre, 'es')), [contacts, includeArchived, global, agent, search]);
-  const groups = useMemo(() => PIPELINE_STAGES.map(stage => ({ ...stage, rows: visible.filter(c => c.stage === stage.id) })), [visible]);
+  const groups = useMemo(() => PIPELINE_STAGES.map(stage => ({ ...stage, rows: visible.filter(c => c.stage === stage.id).sort((a, b) => stage.id === 'sin-llamar' ? ingresoReciente(b.prospecto) - ingresoReciente(a.prospecto) : 0) })), [visible]);
   const total = visible.length;
   const appointments = visible.filter(c => c.citas > 0 || c.ventas > 0).length;
   const sold = visible.filter(c => c.ventas > 0).length;

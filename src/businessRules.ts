@@ -67,6 +67,7 @@ export const RESULTADOS_LLAMADA: ResultadoLlamada[] = [
 export const RESULTADOS_CITA: ResultadoCita[] = [
   'Venta',
   'No recibió',
+  'No se visitó',
   'Reprogramar',
   'Venta futura',
   'No interesada dio referencias',
@@ -687,6 +688,107 @@ export function hasTimePassedLA(horaStr: string): boolean {
 }
 
 /**
+ * Calcula cuántos minutos faltan para una cita hoy en horario America/Los_Angeles.
+ * Retorna null si la cita no es para la fecha de hoy.
+ * Retorna un número positivo si la cita está próxima (ej. 15 si faltan 15 min).
+ * Retorna 0 si es la hora exacta.
+ * Retorna un número negativo si la hora ya pasó hoy.
+ */
+export function getMinutesUntilCitaLA(fechaCita: string, horaCita: string): number | null {
+  if (!fechaCita || !horaCita) return null;
+  try {
+    const todayLA = getTodayInLA();
+    if (fechaCita !== todayLA) return null;
+
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: TIMEZONE_LA,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(now);
+    const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+    const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+    const currentMinutes = hour * 60 + minute;
+
+    const targetMinutes = parseTimeToMinutes(horaCita);
+    return targetMinutes - currentMinutes;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extrae la hora asignada a un seguimiento programado desde el texto de proximaAccion o gestiones
+ * Ej: "Seguimiento a las 10:30 AM" -> "10:30 AM"
+ */
+export function extractHoraSeguimiento(proximaAccion?: string | null): string | null {
+  if (!proximaAccion) return null;
+  const match = proximaAccion.match(/(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?)/i);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Calcula cuántos minutos faltan para un seguimiento programado hoy en horario America/Los_Angeles.
+ * Si no tiene hora específica pero la fecha es hoy o anterior, retorna el estado de urgencia.
+ */
+export function getMinutesUntilSeguimientoLA(fechaSeguimiento?: string | null, horaSeguimiento?: string | null): number | null {
+  if (!fechaSeguimiento) return null;
+  const todayLA = getTodayInLA();
+  // Si la fecha es futura (después de hoy), no es urgente todavía
+  if (fechaSeguimiento > todayLA) return null;
+
+  // Si la fecha es de días anteriores, ya está vencido
+  if (fechaSeguimiento < todayLA) return -9999;
+
+  // Si es para hoy pero no tiene hora especificada, retorna 0 (pendiente hoy todo el día)
+  if (!horaSeguimiento) return 0;
+
+  return getMinutesUntilCitaLA(fechaSeguimiento, horaSeguimiento);
+}
+
+/**
+ * Determina si un prospecto tiene un seguimiento urgente pendiente (vencido o programado para hoy en breve)
+ */
+export function isSeguimientoUrgente(
+  prospecto: Prospecto,
+  advanceMinutes: number = 15,
+  todayLAStr?: string
+): { isUrgente: boolean; diffMinutes: number | null; horaStr: string | null } {
+  if (prospecto.archivado || prospecto.estado !== 'Seguimiento programado') {
+    return { isUrgente: false, diffMinutes: null, horaStr: null };
+  }
+  const todayLA = todayLAStr || getTodayInLA();
+  if (!prospecto.fechaProximaAccion || prospecto.fechaProximaAccion > todayLA) {
+    return { isUrgente: false, diffMinutes: null, horaStr: null };
+  }
+
+  const horaStr = extractHoraSeguimiento(prospecto.proximaAccion);
+
+  // Vencido de días anteriores
+  if (prospecto.fechaProximaAccion < todayLA) {
+    return { isUrgente: true, diffMinutes: -9999, horaStr };
+  }
+
+  // Para hoy
+  if (horaStr) {
+    const diff = getMinutesUntilCitaLA(todayLA, horaStr);
+    if (diff === null) {
+      return { isUrgente: true, diffMinutes: 0, horaStr };
+    }
+    // Si falta menos de advanceMinutes (o ya pasó la hora)
+    if (diff <= advanceMinutes) {
+      return { isUrgente: true, diffMinutes: diff, horaStr };
+    }
+    return { isUrgente: false, diffMinutes: diff, horaStr };
+  }
+
+  // Para hoy sin hora específica: pendiente todo el día
+  return { isUrgente: true, diffMinutes: 0, horaStr: null };
+}
+
+/**
  * Comprueba si una cita está "Pendiente de resultado"
  * (en estado "Agendada" y su fecha y hora ya pasaron)
  */
@@ -735,6 +837,9 @@ export function getResultadoCitaBadgeClass(resultado: ResultadoCita | string): s
       return 'bg-purple-100 text-purple-900 border-purple-300 font-bold';
     case 'No recibió':
       return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'No se visitó':
+    case 'No se visito':
+      return 'bg-amber-50 text-amber-800 border-amber-200';
     case 'No interesada dio referencias':
       return 'bg-indigo-50 text-indigo-700 border-indigo-200';
     case 'No interesada sin referencias':
@@ -775,6 +880,11 @@ export function getDateInLA(dateVal: string | Date | null | undefined): string {
     // Ya está en YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       return trimmed;
+    }
+    // Formato que empieza con YYYY-MM-DD (ej: "2026-10-08 10:00 AM" o "2026-10-08, 03:30 PM") sin 'T'
+    const ymdMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (ymdMatch && !trimmed.includes('T')) {
+      return ymdMatch[1];
     }
     // Formato DD/MM/YYYY o DD/MM/YYYY, hh:mm
     const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
@@ -910,11 +1020,17 @@ export function filterRecordsForDashboard(
   // 1. Prospectos ingresados en el período
   const filteredProspectos = prospectos.filter((p) => {
     if (p.archivado) return false;
-    if (!isInDateRangeLA(p.fechaRecepcion, filters.desde, filters.hasta)) return false;
+    const pDate = p.fechaRecepcion || p.creadoEn || p.fechaProspeccion;
+    if (!isInDateRangeLA(pDate, filters.desde, filters.hasta)) return false;
 
     if (tmFilter && tmFilter !== 'TODAS') {
       const pTm = (p.telemarketing || '').trim().toLowerCase();
-      if (pTm !== tmFilter.trim().toLowerCase()) return false;
+      const targetTm = tmFilter.trim().toLowerCase();
+      if (targetTm === 'sin asignar') {
+        if (pTm !== '' && pTm !== 'sin asignar') return false;
+      } else {
+        if (pTm !== targetTm) return false;
+      }
     }
 
     if (propFilter && propFilter !== 'TODOS') {
@@ -1478,18 +1594,47 @@ export function calculateReporteIndividual({
 } {
   const normAgent = (telemarketing || '').trim().toLowerCase();
 
-  // 1. Prospectos asignados a la telemarketing en el período
+  const prospectosMap = new Map<string, Prospecto>();
+  prospectos.forEach((p) => prospectosMap.set(p.id, p));
+
+  const citasMap = new Map<string, Cita>();
+  citas.forEach((c) => citasMap.set(c.id, c));
+
+  // Helper de resolución de agente para coincidir exactamente con la lógica del Dashboard
+  const isAgentGestion = (g: Gestion) => {
+    const tm = (g.telemarketing || prospectosMap.get(g.idProspecto)?.telemarketing || '').trim().toLowerCase();
+    return tm === normAgent;
+  };
+
+  const getGestionDate = (g: Gestion): string => {
+    return getDateInLA(g.creadoEn || g.fechaHora) || getDateInLA(g.fechaHora || g.creadoEn);
+  };
+
+  const isAgentCita = (c: Cita) => {
+    const tm = (c.telemarketing || prospectosMap.get(c.idProspecto)?.telemarketing || '').trim().toLowerCase();
+    return tm === normAgent;
+  };
+
+  const getCitaCreationDate = (c: Cita): string => {
+    return getDateInLA(c.fechaCreacion) || getDateInLA(c.fechaCita);
+  };
+
+  // 1. Prospectos asignados a la telemarketing (cartera total activa y en el período)
   const prospectosAgente = prospectos.filter(
-    (p) => (p.telemarketing || '').trim().toLowerCase() === normAgent
+    (p) => !p.archivado && (p.telemarketing || '').trim().toLowerCase() === normAgent
   );
-  const prospectosAsignados = prospectosAgente.filter(
-    (p) => p.fechaRecepcion && p.fechaRecepcion >= desde && p.fechaRecepcion <= hasta
-  ).length;
+  const prospectosTotalesCartera = prospectosAgente.length;
+  const prospectosAsignadosPeriodo = prospectosAgente.filter((p) => {
+    const pDate = p.fechaRecepcion || p.creadoEn || p.fechaProspeccion;
+    return isInDateRangeLA(pDate, desde, hasta);
+  }).length;
+  // Contabilizar la cartera activa de prospectos asignados como valor principal, manteniendo el conteo del período
+  const prospectosAsignados = prospectosTotalesCartera;
 
   // 2. Contactos realizados (gestiones del agente en el período)
   const gestionesPeriodo = gestiones.filter((g) => {
-    if ((g.telemarketing || '').trim().toLowerCase() !== normAgent) return false;
-    const dateStr = getDateInLA(g.fechaHora || g.creadoEn);
+    if (!isAgentGestion(g)) return false;
+    const dateStr = getGestionDate(g);
     return dateStr >= desde && dateStr <= hasta;
   });
   const contactosRealizados = gestionesPeriodo.length;
@@ -1501,25 +1646,19 @@ export function calculateReporteIndividual({
 
   // 4. Citas agendadas (por fecha de creación en el período)
   const citasAgendadas = citas.filter((c) => {
-    if ((c.telemarketing || '').trim().toLowerCase() !== normAgent) return false;
-    const dateStr = getDateInLA(c.fechaCreacion);
+    if (!isAgentCita(c)) return false;
+    const dateStr = getCitaCreationDate(c);
     return dateStr >= desde && dateStr <= hasta;
   }).length;
 
   // 5. Citas asistidas (citas del agente cuya fecha de cita cae en el período y fueron Realizadas)
   const citasAsistidas = citas.filter((c) => {
-    if ((c.telemarketing || '').trim().toLowerCase() !== normAgent) return false;
+    if (!isAgentCita(c)) return false;
     const dateStr = getDateInLA(c.fechaCita) || c.fechaCita;
     return dateStr >= desde && dateStr <= hasta && c.estadoCita === 'Realizada';
   }).length;
 
   // 6. Ventas del período (el rango se aplica a la FECHA DE LA CITA)
-  const citasMap = new Map<string, Cita>();
-  citas.forEach((c) => citasMap.set(c.id, c));
-
-  const prospectosMap = new Map<string, Prospecto>();
-  prospectos.forEach((p) => prospectosMap.set(p.id, p));
-
   const ventasAgente = ventas.filter(
     (v) => (v.telemarketing || '').trim().toLowerCase() === normAgent
   );
@@ -1583,6 +1722,8 @@ export function calculateReporteIndividual({
 
   const kpis: ReporteIndividualKPIs = {
     prospectosAsignados,
+    prospectosAsignadosPeriodo,
+    prospectosTotalesCartera,
     contactosRealizados,
     contactosEfectivos,
     citasAgendadas,
@@ -1603,16 +1744,36 @@ export function calculateReporteIndividual({
   let safety = 0;
   while (curr <= hasta && safety < 120) {
     const thisDay = curr;
-    const llamadasDia = gestionesPeriodo.filter((g) => {
-      const gDate = getDateInLA(g.fechaHora || g.creadoEn);
-      return gDate === thisDay;
-    }).length;
+    const dayGestiones = gestionesPeriodo.filter((g) => {
+      return getGestionDate(g) === thisDay;
+    });
+
+    const llamadasDia = dayGestiones.length;
+    const efectivosDia = dayGestiones.filter(
+      (g) => g.efectivo === 'Sí' || isContactoEfectivo(g.resultado)
+    ).length;
 
     const citasDia = citas.filter((c) => {
-      if ((c.telemarketing || '').trim().toLowerCase() !== normAgent) return false;
-      const cDate = getDateInLA(c.fechaCreacion);
-      return cDate === thisDay;
+      if (!isAgentCita(c)) return false;
+      return getCitaCreationDate(c) === thisDay;
     }).length;
+
+    const efectividadPctDia =
+      llamadasDia > 0 ? Number(((efectivosDia / llamadasDia) * 100).toFixed(1)) : 0;
+    const conversionCitaPctDia =
+      efectivosDia > 0 ? Number(((citasDia / efectivosDia) * 100).toFixed(1)) : 0;
+
+    const resultadosDetalle: Record<string, number> = {};
+    RESULTADOS_LLAMADA.forEach((r) => {
+      resultadosDetalle[r] = 0;
+    });
+    dayGestiones.forEach((g) => {
+      if (resultadosDetalle[g.resultado] !== undefined) {
+        resultadosDetalle[g.resultado]++;
+      } else {
+        resultadosDetalle[g.resultado] = (resultadosDetalle[g.resultado] || 0) + 1;
+      }
+    });
 
     const parts = thisDay.split('-');
     const fechaDisplay = parts.length === 3 ? `${parts[2]}/${parts[1]}` : thisDay;
@@ -1621,7 +1782,11 @@ export function calculateReporteIndividual({
       fecha: thisDay,
       fechaDisplay,
       llamadas: llamadasDia,
+      efectivos: efectivosDia,
       citas: citasDia,
+      efectividadPct: efectividadPctDia,
+      conversionCitaPct: conversionCitaPctDia,
+      resultadosDetalle,
     });
 
     curr = addDaysToDateStr(curr, 1);
@@ -1721,7 +1886,7 @@ export function calculateReport(data:import('./stage78/types').ReportData,filter
   };
   const contacted=new Map<string,Set<string>>();
   const addContacted=(r:Row,id:string)=>{let s=contacted.get(r.key);if(!s){s=new Set();contacted.set(r.key,s);}s.add(id);r.metrics.contactados=s.size;};
-  ps.forEach(p=>{const r=rowFor(p);for(const t of [r,total]){t.metrics.prospectos++;t.metrics[p.telemarketing&&p.telemarketing!==SIN_ASIGNAR?'asignados':'sinAsignar']++;t.ids.prospectos.push(p.id);}});
+  ps.forEach(p=>{const r=rowFor(p);for(const t of [r,total]){t.metrics.prospectos++;const isAssigned=Boolean(p.telemarketing&&p.telemarketing.trim()!==''&&p.telemarketing.trim().toUpperCase()!==SIN_ASIGNAR);t.metrics[isAssigned?'asignados':'sinAsignar']++;t.ids.prospectos.push(p.id);}});
   gs.forEach(g=>{const r=rowFor(pMap.get(g.idProspecto)!,g,'gestiones');for(const t of [r,total]){t.metrics.contactos++;if(g.efectivo==='Sí')t.metrics.efectivos++;t.ids.gestiones.push(g.id);addContacted(t,g.idProspecto);}});
   if(cohort)ps.forEach(p=>{const historical=p.intentosHistoricos||0;if(!historical)return;const r=rowFor(p);for(const t of [r,total]){t.metrics.contactos+=historical;t.metrics.efectivos+=p.contactosEfectivosHistoricos||0;addContacted(t,p.id);}});
   const resultIds=new Set(data.retroalimentaciones.map(r=>r.idCita));

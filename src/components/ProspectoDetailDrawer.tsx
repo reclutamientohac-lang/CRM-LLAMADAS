@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '../firebase';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Phone,
@@ -27,6 +29,8 @@ import { Prospecto, Cita } from '../types';
 import { useCRM } from '../context/CRMContext';
 import { useAuth } from '../context/AuthContext';
 import {
+  formatCurrency,
+  getDateInLA,
   formatPhoneDisplay,
   formatDateTimeLA,
   formatDateDisplay,
@@ -55,7 +59,7 @@ export const ProspectoDetailDrawer: React.FC<ProspectoDetailDrawerProps> = ({
   const { archiveProspecto, updateProspecto, settings, gestiones, citas } = useCRM();
   const { isSupervisor } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'info' | 'gestiones'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'gestiones' | 'historial'>('info');
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -202,6 +206,7 @@ export const ProspectoDetailDrawer: React.FC<ProspectoDetailDrawerProps> = ({
 
         {/* Drawer Tabs: Información vs Historial de Gestiones */}
         <div className="flex items-center border-b border-slate-200 bg-slate-50 px-6 shrink-0">
+          <button onClick={()=>setActiveTab('historial')} className={`py-3 px-3 text-xs font-bold border-b-2 ${activeTab==='historial'?'border-[#0D2240] text-[#0D2240]':'border-transparent text-slate-500'}`}>Historial completo</button>
           <button
             onClick={() => setActiveTab('info')}
             className={`py-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
@@ -236,7 +241,7 @@ export const ProspectoDetailDrawer: React.FC<ProspectoDetailDrawerProps> = ({
 
         {/* Drawer Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {activeTab === 'info' ? (
+          {activeTab === 'historial' ? <ProspectoHistorial prospecto={prospecto} onOpenCita={onOpenCitaDetail}/> : activeTab === 'info' ? (
             <>
               {/* Telemarketing Assignment Card */}
               <div className="bg-[#F7F8FA] rounded-2xl p-4 border border-slate-200/80">
@@ -692,3 +697,22 @@ export const ProspectoDetailDrawer: React.FC<ProspectoDetailDrawerProps> = ({
   );
 };
 
+
+
+function ProspectoHistorial({prospecto,onOpenCita}:{prospecto:Prospecto;onOpenCita?: (c:Cita)=>void}) {
+  const crm=useCRM(); const {isSupervisor}=useAuth();
+  const [assignments,setAssignments]=useState<any[]>([]),[error,setError]=useState('');
+  useEffect(()=>{let alive=true;setAssignments([]);setError('');if(isSupervisor)getDocs(query(collection(db,'logAsignaciones'),where('idProspecto','==',prospecto.id))).then(s=>{if(alive)setAssignments(s.docs.map(d=>({id:d.id,...d.data()})));}).catch(()=>{if(alive)setError('No se pudo cargar el historial de asignaciones.');});return()=>{alive=false;};},[prospecto.id,isSupervisor]);
+  const cs=crm.citas.filter(c=>c.idProspecto===prospecto.id);
+  const vs=isSupervisor?crm.ventas.filter(v=>v.idProspecto===prospecto.id):[];
+  const events: {id:string;date:string;title:string;detail:string;cita?:Cita}[]=[
+    {id:'ingreso',date:prospecto.fechaRecepcion,title:'Ingreso del prospecto',detail:`Propietario: ${prospecto.propietario||'Sin dato'} · Origen: ${prospecto.origen||'Sin dato'}`},
+    ...crm.gestiones.filter(g=>g.idProspecto===prospecto.id).map(g=>({id:g.id,date:g.fechaHora,title:`Llamada · ${g.resultado}`,detail:`${g.telemarketing} · ${g.observacion||'Sin observación'}`})),
+    ...cs.map(c=>({id:c.id,date:c.fechaCita,title:`Cita · ${c.estadoCita}`,detail:`${c.horaCita} · ${c.telemarketing} · ${c.asunto}`,cita:c})),
+    ...crm.retroalimentaciones.filter(r=>r.idProspecto===prospecto.id).map(r=>({id:r.id,date:(r as any).fechaResultadoDesconocida?'':r.fecha,title:`Resultado · ${r.resultado}`,detail:`${r.observacion||'Sin observación'}${(r as any).fechaResultadoDesconocida?' · Fecha del resultado no registrada':''}`})),
+    ...vs.map(v=>({id:v.id,date:(v as any).fechaReporteDesconocida?'':v.fechaReporte,title:`Venta · ${v.estado}`,detail:`Monto: ${v.montoAprobado==null?'No registrado':formatCurrency(v.montoAprobado)} · Bono generado: ${v.bonoGenerado==null?'No registrado':formatCurrency(v.bonoGenerado)} · ${v.estadoPagoHistorico==='Pagada'?`Bono pagado histórico: ${v.bonoPagadoHistorico==null?'importe no registrado':formatCurrency(v.bonoPagadoHistorico)} · Fecha de pago: ${v.fechaPagoHistorico?formatDateDisplay(v.fechaPagoHistorico):'no registrada'}`:`Saldo por pagar: ${formatCurrency(v.bonoPagable||0)}`}`})),
+    ...assignments.map(a=>({id:a.id,date:a.fecha||a.fechaHora||'',title:'Cambio de asignación',detail:`${a.anterior||SIN_ASIGNAR} → ${a.nueva||SIN_ASIGNAR}`})),
+    ...crm.logsVentas.filter(l=>vs.some(v=>v.id===l.idVenta)).map(l=>({id:l.id,date:l.fechaHora,title:'Cambio de venta',detail:`${l.estadoAnterior} → ${l.estadoNuevo} · Monto: ${l.montoAnterior==null?'sin dato':formatCurrency(l.montoAnterior)} → ${l.montoNuevo==null?'sin dato':formatCurrency(l.montoNuevo)}`}))
+  ].sort((a,b)=>getDateInLA(b.date).localeCompare(getDateInLA(a.date))||b.date.localeCompare(a.date));
+  return <div className="space-y-4"><h3 className="font-bold text-lg">Historial del prospecto</h3><p className="text-xs text-slate-500">Más reciente primero. Los hechos sin fecha registrada se muestran al final.</p>{(prospecto.intentosHistoricos||prospecto.contactosEfectivosHistoricos)?<p className="rounded-xl bg-amber-50 p-3 text-sm">Actividad histórica: {prospecto.intentosHistoricos||0} intentos y {prospecto.contactosEfectivosHistoricos||0} contactos efectivos. No hay detalle individual de esas llamadas.</p>:null}{error&&<p role="alert">{error}</p>}{events.map(e=><article key={e.id} className="border-l-2 border-[#B8922A] pl-4 py-2"><strong className="text-sm">{e.title}</strong><p className="text-xs text-slate-500">{e.date?formatDateDisplay(e.date):'Sin fecha registrada'}</p><p className="text-sm mt-1 whitespace-pre-wrap">{e.detail}</p>{e.cita&&onOpenCita&&<button className="underline text-sm mt-1" onClick={()=>onOpenCita(e.cita!)}>Abrir cita</button>}</article>)}{isSupervisor&&!assignments.length&&!error&&<p className="text-xs text-slate-500">No hay cambios de asignación registrados.</p>}</div>;
+}

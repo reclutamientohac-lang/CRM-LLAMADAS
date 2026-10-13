@@ -1,3 +1,4 @@
+import { PrintReport } from './AgendaView';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Award,
@@ -21,6 +22,7 @@ import {
   ShieldAlert,
   AlertTriangle,
   RotateCcw,
+  Check,
 } from 'lucide-react';
 import { useCRM } from '../context/CRMContext';
 import { useAuth } from '../context/AuthContext';
@@ -46,6 +48,7 @@ import {
   getDateRangePreset,
   isInDateRangeLA,
   getDateInLA,
+  getTodayInLA,
 } from '../businessRules';
 import { exportDashboardDrillDownToExcel } from '../excelUtils';
 
@@ -69,6 +72,9 @@ interface VentaEditRow {
   observacion: string;
   bonoGenerado: number | null;
   bonoPagable: number;
+  estadoPago: 'Pagada' | 'Pendiente';
+  fechaPagoHistorico?: string | null;
+  bonoPagadoHistorico?: number | null;
   original: Venta;
   isModified: boolean;
   errors: string[];
@@ -83,11 +89,12 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
 
   // Filtros de fecha (aplicados a la FECHA DE LA CITA)
   const initialPreset = useMemo(() => getDateRangePreset('mes'), []);
-  const [desde, setDesde] = useState<string>(initialPreset.desde);
-  const [hasta, setHasta] = useState<string>(initialPreset.hasta);
-  const [activePreset, setActivePreset] = useState<PresetRango | 'custom'>('mes');
+  const [desde, setDesde] = useState<string>('');
+  const [hasta, setHasta] = useState<string>('');
+  const [activePreset, setActivePreset] = useState<PresetRango | 'custom' | 'todos'>('todos');
 
   const [filtroTelemarketing, setFiltroTelemarketing] = useState<string>('TODAS');
+  const [filtroPago, setFiltroPago] = useState('TODOS');
   const [filtroEstado, setFiltroEstado] = useState<string>('TODOS');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
@@ -104,6 +111,24 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
   const [cancelMotivo, setCancelMotivo] = useState<string>('');
   const [isCanceling, setIsCanceling] = useState(false);
 
+  // Modal Directo de Cambio de Estatus de Comisión (Pendiente <-> Pagada)
+  const [pagoModalData, setPagoModalData] = useState<{
+    ventaId: string;
+    prospectoNombre: string;
+    prospectoTelefono: string;
+    telemarketing: string;
+    fechaCita: string;
+    montoAprobado: number | null;
+    porcentajeBono: number | null;
+    bonoGenerado: number | null;
+    estadoPago: 'Pagada' | 'Pendiente';
+    fechaPago: string;
+    bonoPagado: number | null;
+    observacion: string;
+    originalVenta: Venta;
+  } | null>(null);
+  const [isSavingDirectPago, setIsSavingDirectPago] = useState(false);
+
   // Mapeos rápidos para citas y prospectos
   const citasMap = useMemo(() => {
     const map = new Map<string, Cita>();
@@ -119,8 +144,8 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
 
   // Lista de agentes configuradas
   const activeTelemarketings = useMemo(() => {
-    return settings.telemarketingAgents.filter((a) => a.active);
-  }, [settings.telemarketingAgents]);
+    return [...new Set([...settings.telemarketingAgents.map(a=>a.name),...ventas.map(v=>v.telemarketing)].filter(Boolean))].sort().map(name=>({id:name,name}));
+  }, [settings.telemarketingAgents, ventas]);
 
   // Sincronizar estado local con ventas remotas si no están modificadas
   useEffect(() => {
@@ -148,8 +173,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           return;
         }
 
+        const estadoPago = v.estadoPagoHistorico === 'Pagada' ? 'Pagada' : 'Pendiente';
         const bGen = calculateBonoGenerado(v.montoAprobado, v.porcentajeBono);
-        const bPag = calculateBonoPagable(v.estado, bGen, v.estadoPagoHistorico);
+        const bPag = calculateBonoPagable(v.estado, bGen, estadoPago);
 
         next[v.id] = {
           id: v.id,
@@ -166,6 +192,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           observacion: v.observacion || '',
           bonoGenerado: bGen,
           bonoPagable: bPag,
+          estadoPago,
+          fechaPagoHistorico: v.fechaPagoHistorico || null,
+          bonoPagadoHistorico: v.bonoPagadoHistorico ?? null,
           original: v,
           isModified: false,
           errors: [],
@@ -193,9 +222,13 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const fechaParaFiltro = cita?.fechaCita || v.fechaReporte;
 
       // 1. Rango por FECHA DE LA CITA
-      if (!isInDateRangeLA(fechaParaFiltro, desde, hasta)) {
+      const date = getDateInLA(fechaParaFiltro);
+      if (activePreset !== 'todos' && ((!date && (desde || hasta)) || (desde && date < desde) || (hasta && date > hasta))) {
         return false;
       }
+
+      if (filtroPago === 'Pagada' && v.estadoPagoHistorico !== 'Pagada') return false;
+      if (filtroPago === 'Por pagar' && !(v.estado !== 'Cancelada' && v.estadoPagoHistorico !== 'Pagada' && (editableRows[v.id]?.bonoPagable ?? v.bonoPagable ?? 0) > 0)) return false;
 
       // 2. Filtro Telemarketing
       if (filtroTelemarketing !== 'TODAS') {
@@ -233,12 +266,12 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const fB = cB?.fechaCita || b.fechaReporte;
       return fB.localeCompare(fA);
     });
-  }, [ventas, citasMap, prospectosMap, desde, hasta, filtroTelemarketing, filtroEstado, searchTerm, editableRows]);
+  }, [ventas, citasMap, prospectosMap, desde, hasta, filtroTelemarketing, filtroEstado, filtroPago, activePreset, searchTerm, editableRows]);
 
   // Actualizar campo de fila localmente con cálculo reactivo inmediato
   const handleRowChange = (
     id: string,
-    field: 'montoAprobadoStr' | 'porcentajeBonoStr' | 'estado' | 'observacion',
+    field: 'montoAprobadoStr' | 'porcentajeBonoStr' | 'estado' | 'observacion' | 'estadoPago' | 'fechaPagoHistorico',
     value: string
   ) => {
     setSaveSuccessMsg(null);
@@ -256,8 +289,24 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const pctRes = parsePercentageInput(next.porcentajeBonoStr);
 
       const bGen = calculateBonoGenerado(montoRes.value, pctRes.ratio);
-      const bPag = calculateBonoPagable(next.estado, bGen, next.original.estadoPagoHistorico);
 
+      if (field === 'estadoPago') {
+        const estP = value as 'Pagada' | 'Pendiente';
+        next.estadoPago = estP;
+        if (estP === 'Pagada') {
+          // Si la venta está pendiente pero ya tiene monto y porcentaje, facilitamos aprobándola
+          if (next.estado === 'Pendiente' && montoRes.value && pctRes.ratio) {
+            next.estado = 'Aprobada';
+          }
+          next.fechaPagoHistorico = next.fechaPagoHistorico || getTodayInLA();
+          next.bonoPagadoHistorico = next.bonoPagadoHistorico ?? bGen;
+        } else {
+          next.fechaPagoHistorico = null;
+          next.bonoPagadoHistorico = null;
+        }
+      }
+
+      const bPag = calculateBonoPagable(next.estado, bGen, next.estadoPago);
       next.bonoGenerado = bGen;
       next.bonoPagable = bPag;
 
@@ -267,11 +316,15 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         curr.original.porcentajeBono !== null
           ? String(Number((curr.original.porcentajeBono * 100).toFixed(2)))
           : '';
+      const origEstadoPago = curr.original.estadoPagoHistorico || 'Pendiente';
+      const origFechaPago = curr.original.fechaPagoHistorico || '';
 
       const isModified =
         next.montoAprobadoStr !== origMonto ||
         next.porcentajeBonoStr !== origPct ||
         next.estado !== curr.original.estado ||
+        next.estadoPago !== origEstadoPago ||
+        (next.fechaPagoHistorico || '') !== origFechaPago ||
         next.observacion !== (curr.original.observacion || '');
 
       next.isModified = isModified;
@@ -291,6 +344,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         if (pctRes.ratio === null || pctRes.ratio <= 0) {
           rowErrors.push('Una venta "Aprobada" exige un porcentaje de bono válido.');
         }
+      }
+      if (next.estadoPago === 'Pagada' && next.estado !== 'Aprobada') {
+        rowErrors.push('Para marcar la comisión como "Pagada", la venta debe estar "Aprobada".');
       }
 
       next.errors = rowErrors;
@@ -347,6 +403,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
     const payload = modifiedRows.map((r) => {
       const montoRes = parseCurrencyInput(r.montoAprobadoStr);
       const pctRes = parsePercentageInput(r.porcentajeBonoStr);
+      const bGen = calculateBonoGenerado(montoRes.value, pctRes.ratio);
 
       return {
         id: r.id,
@@ -355,6 +412,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         estado: r.estado,
         observacion: r.observacion.trim(),
         ultimaActualizacionOriginal: r.original.ultimaActualizacion,
+        estadoPagoHistorico: r.estadoPago,
+        bonoPagadoHistorico: r.estadoPago === 'Pagada' ? (r.bonoPagadoHistorico ?? bGen ?? 0) : null,
+        fechaPagoHistorico: r.estadoPago === 'Pagada' ? (r.fechaPagoHistorico || getTodayInLA()) : null,
       };
     });
 
@@ -383,7 +443,8 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       Object.keys(next).forEach((id) => {
         const v = next[id].original;
         const bGen = calculateBonoGenerado(v.montoAprobado, v.porcentajeBono);
-        const bPag = calculateBonoPagable(v.estado, bGen, v.estadoPagoHistorico);
+        const estP = v.estadoPagoHistorico === 'Pagada' ? 'Pagada' : 'Pendiente';
+        const bPag = calculateBonoPagable(v.estado, bGen, estP);
 
         next[id] = {
           ...next[id],
@@ -394,6 +455,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           observacion: v.observacion || '',
           bonoGenerado: bGen,
           bonoPagable: bPag,
+          estadoPago: estP,
+          fechaPagoHistorico: v.fechaPagoHistorico || null,
+          bonoPagadoHistorico: v.bonoPagadoHistorico ?? null,
           isModified: false,
           errors: [],
         };
@@ -420,22 +484,118 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
     }
   };
 
+  // Abrir Modal de Gestión de Pago de Comisión
+  const handleOpenPagoModal = (v: Venta) => {
+    const pros = prospectosMap.get(v.idProspecto);
+    const cita = citasMap.get(v.idCita);
+    const r = editableRows[v.id];
+
+    const montoVal = r ? parseCurrencyInput(r.montoAprobadoStr).value : v.montoAprobado;
+    const pctVal = r ? parsePercentageInput(r.porcentajeBonoStr).ratio : v.porcentajeBono;
+    const bGen = r?.bonoGenerado ?? calculateBonoGenerado(montoVal, pctVal);
+    const estPago = (r?.estadoPago || v.estadoPagoHistorico || 'Pendiente') as 'Pagada' | 'Pendiente';
+
+    setPagoModalData({
+      ventaId: v.id,
+      prospectoNombre: pros?.nombre || `Prospecto #${v.idProspecto.slice(-4)}`,
+      prospectoTelefono: pros?.telefono || '',
+      telemarketing: v.telemarketing,
+      fechaCita: cita?.fechaCita || v.fechaReporte,
+      montoAprobado: montoVal,
+      porcentajeBono: pctVal,
+      bonoGenerado: bGen,
+      estadoPago: estPago,
+      fechaPago: r?.fechaPagoHistorico || v.fechaPagoHistorico || getTodayInLA(),
+      bonoPagado: r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0,
+      observacion: r?.observacion || v.observacion || '',
+      originalVenta: v,
+    });
+  };
+
+  // Confirmar y guardar directamente el cambio de estatus de comisión en Firestore
+  const handleConfirmDirectPago = async () => {
+    if (!pagoModalData) return;
+    setIsSavingDirectPago(true);
+    setSaveSuccessMsg(null);
+
+    try {
+      const v = pagoModalData.originalVenta;
+      const targetEstadoPago = pagoModalData.estadoPago;
+      const bGen = pagoModalData.bonoGenerado ?? calculateBonoGenerado(pagoModalData.montoAprobado, pagoModalData.porcentajeBono);
+
+      const res = await actualizarVentas([
+        {
+          id: v.id,
+          montoAprobado: pagoModalData.montoAprobado,
+          porcentajeBono: pagoModalData.porcentajeBono,
+          estado:
+            targetEstadoPago === 'Pagada' && v.estado === 'Pendiente' && pagoModalData.montoAprobado
+              ? 'Aprobada'
+              : v.estado,
+          observacion: pagoModalData.observacion.trim(),
+          ultimaActualizacionOriginal: v.ultimaActualizacion,
+          estadoPagoHistorico: targetEstadoPago,
+          bonoPagadoHistorico: targetEstadoPago === 'Pagada' ? (pagoModalData.bonoPagado ?? bGen ?? 0) : null,
+          fechaPagoHistorico: targetEstadoPago === 'Pagada' ? (pagoModalData.fechaPago || getTodayInLA()) : null,
+        },
+      ]);
+
+      if (res.success) {
+        setSaveSuccessMsg(
+          `¡Comisión de ${pagoModalData.prospectoNombre} actualizada a "${targetEstadoPago}" con éxito!`
+        );
+        setTimeout(() => setSaveSuccessMsg(null), 4000);
+
+        // Actualizar estado local
+        setEditableRows((prev) => {
+          const curr = prev[v.id];
+          if (!curr) return prev;
+          return {
+            ...prev,
+            [v.id]: {
+              ...curr,
+              estadoPago: targetEstadoPago,
+              fechaPagoHistorico: targetEstadoPago === 'Pagada' ? (pagoModalData.fechaPago || getTodayInLA()) : null,
+              bonoPagadoHistorico: targetEstadoPago === 'Pagada' ? (pagoModalData.bonoPagado ?? bGen ?? 0) : null,
+              isModified: false,
+            },
+          };
+        });
+        setPagoModalData(null);
+      } else {
+        alert(res.error || 'Error al guardar el estatus de comisión.');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Error al actualizar comisión.');
+    } finally {
+      setIsSavingDirectPago(false);
+    }
+  };
+
   // Totales de las filas filtradas
   const totals = useMemo(() => {
     let countVentas = filteredVentasList.length;
     let totalMonto = 0;
     let totalBonoGen = 0;
     let totalBonoPag = 0;
+    let totalComisionesPagadas = 0;
+    let countComisionesPagadas = 0;
 
     filteredVentasList.forEach((v) => {
       const r = editableRows[v.id];
       const monto = r ? parseCurrencyInput(r.montoAprobadoStr).value || 0 : v.montoAprobado || 0;
       const bGen = r ? r.bonoGenerado || 0 : v.bonoGenerado || 0;
       const bPag = r ? r.bonoPagable || 0 : v.bonoPagable || 0;
+      const estPago = r ? r.estadoPago : (v.estadoPagoHistorico || 'Pendiente');
 
       totalMonto += monto;
       totalBonoGen += bGen;
       totalBonoPag += bPag;
+
+      if (estPago === 'Pagada') {
+        countComisionesPagadas++;
+        totalComisionesPagadas += (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0);
+      }
     });
 
     return {
@@ -443,6 +603,8 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       totalMonto,
       totalBonoGen,
       totalBonoPag,
+      totalComisionesPagadas,
+      countComisionesPagadas,
     };
   }, [filteredVentasList, editableRows]);
 
@@ -453,6 +615,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
     const pendientes = list.filter((v) => (editableRows[v.id]?.estado || v.estado) === 'Pendiente');
     const aprobadas = list.filter((v) => (editableRows[v.id]?.estado || v.estado) === 'Aprobada');
     const canceladas = list.filter((v) => (editableRows[v.id]?.estado || v.estado) === 'Cancelada');
+    const pagadas = list.filter((v) => (editableRows[v.id]?.estadoPago || v.estadoPagoHistorico) === 'Pagada');
 
     const montoPend = pendientes.reduce((acc, v) => {
       const r = editableRows[v.id];
@@ -469,6 +632,12 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       return acc + (r ? r.bonoPagable || 0 : v.bonoPagable || 0);
     }, 0);
 
+    const montoComisionesPagadas = pagadas.reduce((acc, v) => {
+      const r = editableRows[v.id];
+      const bGen = r ? r.bonoGenerado || 0 : v.bonoGenerado || 0;
+      return acc + (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0);
+    }, 0);
+
     return {
       pendientesCount: pendientes.length,
       montoPend,
@@ -476,6 +645,8 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       montoAprob,
       bonoPagableAprob,
       canceladasCount: canceladas.length,
+      pagadasCount: pagadas.length,
+      montoComisionesPagadas,
     };
   }, [filteredVentasList, editableRows]);
 
@@ -503,9 +674,12 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           Teléfono: pros?.telefono || '',
           'Monto Aprobado ($)': monto !== null ? monto : 0,
           '% Bono': pct !== null ? `${Number((pct * 100).toFixed(2))}%` : '-',
-          Estado: st,
+          'Estado Venta': st,
           'Bono Generado ($)': bGen !== null ? bGen : 0,
-          'Bono Pagable ($)': bPag,
+          'Saldo Por Pagar ($)': bPag,
+          'Estatus Comisión': (r?.estadoPago || v.estadoPagoHistorico) === 'Pagada' ? 'Pagada' : 'Pendiente',
+          'Fecha de Pago': (r?.estadoPago || v.estadoPagoHistorico) === 'Pagada' ? (r?.fechaPagoHistorico || v.fechaPagoHistorico || 'Registrada') : '-',
+          'Bono Pagado ($)': (r?.estadoPago || v.estadoPagoHistorico) === 'Pagada' ? (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0) : 0,
           Observación: r?.observacion || v.observacion || '',
           'Última Actualización': formatDateTimeLA(v.ultimaActualizacion),
         };
@@ -522,15 +696,18 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         Teléfono: '',
         'Monto Aprobado ($)': totals.totalMonto,
         '% Bono': '',
-        Estado: '',
+        'Estado Venta': '',
         'Bono Generado ($)': totals.totalBonoGen,
-        'Bono Pagable ($)': totals.totalBonoPag,
+        'Saldo Por Pagar ($)': totals.totalBonoPag,
+        'Estatus Comisión': `Pagadas: ${totals.countComisionesPagadas}`,
+        'Fecha de Pago': '',
+        'Bono Pagado ($)': totals.totalComisionesPagadas,
         Observación: '',
         'Última Actualización': '',
       });
 
       exportDashboardDrillDownToExcel(
-        `Ventas_Bonos_${formatDateDisplay(desde)}_al_${formatDateDisplay(hasta)}`,
+        activePreset === 'todos' ? 'Ventas_Bonos_Todo_el_historial' : `Ventas_Bonos_${desde || 'inicio'}_al_${hasta || 'hoy'}`,
         rows
       );
     } catch (err: any) {
@@ -558,6 +735,16 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200 pb-16">
+      <PrintReport title="Ventas y bonos"
+        filters={`Fecha de cita: ${desde || 'Inicio'} a ${hasta || 'Todo el historial'} · Telemarketing: ${filtroTelemarketing} · Estado: ${filtroEstado} · Pago: ${filtroPago} · Búsqueda: ${searchTerm || 'Todas'}`}
+        columns={['Fecha cita', 'Prospecto', 'Telemarketing', 'Monto aprobado', 'Estado venta', 'Bono generado', 'Bono por pagar', 'Pago histórico']}
+        rows={filteredVentasList.map(v => [formatDateDisplay(citasMap.get(v.idCita)?.fechaCita || v.fechaReporte), prospectosMap.get(v.idProspecto)?.nombre || v.idProspecto, v.telemarketing, v.montoAprobado == null ? 'No registrado' : formatCurrency(v.montoAprobado), v.estado, v.bonoGenerado == null ? 'No registrado' : formatCurrency(v.bonoGenerado), formatCurrency(v.bonoPagable), v.estadoPagoHistorico === 'Pagada' ? `Pagada · ${formatCurrency(v.bonoPagadoHistorico || 0)}` : 'Sin pago registrado'])}
+        summary={`${modifiedCount > 0 ? 'ATENCIÓN: hay cambios sin guardar; este reporte contiene únicamente los datos guardados. ' : ''}Total ventas: ${filteredVentasList.length} · Monto aprobado: ${formatCurrency(filteredVentasList.reduce((s,v)=>s+(v.montoAprobado || 0),0))} · Bonos por pagar: ${formatCurrency(filteredVentasList.reduce((s,v)=>s+(v.bonoPagable || 0),0))} · Bonos pagados históricos: ${formatCurrency(filteredVentasList.filter(v=>v.estadoPagoHistorico==='Pagada').reduce((s,v)=>s+(v.bonoPagadoHistorico || 0),0))}`}
+      />
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
+        <button type="button" disabled={modifiedCount > 0 || isSaving} onClick={() => window.print()} className="px-4 py-2 rounded-xl bg-[#0D2240] text-white font-bold disabled:opacity-50">Imprimir / PDF</button>
+        <span className="text-xs text-slate-500">{modifiedCount > 0 ? 'Guarda o descarta los cambios antes de imprimir.' : 'Incluye todas las ventas filtradas y sus totales. Selecciona Guardar como PDF en el diálogo.'}</span>
+      </div>
       {/* HEADER */}
       <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -654,7 +841,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       )}
 
       {/* TARJETAS SUPERIORES POR ESTADO */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Pendientes */}
         <div className="bg-white rounded-2xl p-4 shadow-xs border border-amber-200/90 relative overflow-hidden">
           <div className="flex items-center justify-between mb-1">
@@ -669,7 +856,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
             {formatCurrency(kpisCards.montoPend)}
           </div>
           <div className="text-[11px] text-amber-700/80 mt-1">
-            Pendiente de aprobación de monto y porcentaje
+            Pendiente de aprobación de venta
           </div>
         </div>
 
@@ -686,30 +873,96 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           <div className="text-2xl font-black text-emerald-950">
             {formatCurrency(kpisCards.montoAprob)}
           </div>
-          <div className="text-[11px] text-emerald-700 font-extrabold mt-1">
-            Bono pagable total: {formatCurrency(kpisCards.bonoPagableAprob)}
+          <div className="text-[11px] text-emerald-700 font-bold mt-1">
+            Monto aprobado en ventas
           </div>
         </div>
 
-        {/* Canceladas */}
-        <div className="bg-white rounded-2xl p-4 shadow-xs border border-slate-200 relative overflow-hidden">
+        {/* Comisiones Pagadas */}
+        <div className="bg-white rounded-2xl p-4 shadow-xs border border-blue-200/90 relative overflow-hidden">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-tight">
-              Ventas Canceladas
+            <span className="text-xs font-bold text-blue-800 uppercase tracking-tight">
+              Comisiones Pagadas
             </span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-              {kpisCards.canceladasCount}
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-900">
+              {kpisCards.pagadasCount}
             </span>
           </div>
-          <div className="text-2xl font-black text-slate-700">
-            {kpisCards.canceladasCount} venta{kpisCards.canceladasCount === 1 ? '' : 's'}
+          <div className="text-2xl font-black text-blue-950">
+            {formatCurrency(kpisCards.montoComisionesPagadas)}
           </div>
-          <div className="text-[11px] text-slate-400 mt-1">
-            Sin bono pagable generado ($0.00)
+          <div className="text-[11px] text-blue-700 font-bold mt-1">
+            Comisiones marcadas como Pagadas
+          </div>
+        </div>
+
+        {/* Saldo Por Pagar */}
+        <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#B8922A]/40 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold text-[#0D2240] uppercase tracking-tight">
+              Saldo Por Pagar
+            </span>
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-[#0D2240]">
+              {formatCurrency(kpisCards.bonoPagableAprob)}
+            </span>
+          </div>
+          <div className="text-2xl font-black text-[#0D2240]">
+            {formatCurrency(kpisCards.bonoPagableAprob)}
+          </div>
+          <div className="text-[11px] text-slate-500 font-medium mt-1">
+            Bonos aprobados pendientes de pagar
           </div>
         </div>
       </div>
 
+      {/* BANNER GUÍA DE PAGO DE COMISIONES */}
+      <div className="rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-300 p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">💰</span>
+            <strong className="text-emerald-950 text-sm sm:text-base font-black">
+              ¿Cómo cambiar el estatus a una comisión de Pendiente a Pagada?
+            </strong>
+          </div>
+          <p className="text-xs text-emerald-800 mt-1.5 leading-relaxed max-w-2xl">
+            Toca el botón <strong>"💰 Gestionar Pago"</strong> o <strong>"Pagar"</strong> en la fila de cualquier venta (o en su tarjeta si estás en celular). En la ventana emergente podrás seleccionar <strong>"Pagada"</strong>, confirmar la fecha de pago y guardar de inmediato con un solo clic.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+            onClick={() => {
+              setActivePreset('todos');
+              setDesde('');
+              setHasta('');
+              setFiltroPago('Por pagar');
+              setFiltroEstado('TODOS');
+              setFiltroTelemarketing('TODAS');
+              setSearchTerm('');
+            }}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Ver Por Pagar ({kpisCards.aprobadasCount})</span>
+          </button>
+          <button
+            type="button"
+            className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition-colors cursor-pointer shadow-xs flex items-center gap-1.5"
+            onClick={() => {
+              setActivePreset('todos');
+              setDesde('');
+              setHasta('');
+              setFiltroPago('Pagada');
+              setFiltroEstado('TODOS');
+              setFiltroTelemarketing('TODAS');
+              setSearchTerm('');
+            }}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Ver Ya Pagadas ({kpisCards.pagadasCount})</span>
+          </button>
+        </div>
+      </div>
       {/* FILTROS */}
       <div className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/90 space-y-4">
         {/* Atajos de fecha */}
@@ -723,6 +976,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" className="px-3 py-1.5 rounded-xl bg-slate-100 text-xs font-bold" aria-pressed={activePreset==='todos'} onClick={()=>{setActivePreset('todos');setDesde('');setHasta('');}}>Todo el historial</button>
             {[
               { id: 'hoy', label: 'Hoy' },
               { id: 'ayer', label: 'Ayer' },
@@ -751,7 +1005,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         </div>
 
         {/* Inputs de filtros */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
               Fecha Cita Desde:
@@ -816,6 +1070,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
             </select>
           </div>
 
+          <div><label className="block text-[11px] font-bold text-slate-600 mb-1" htmlFor="estado-pago">Pago del bono</label><select id="estado-pago" className="w-full px-3 py-2 bg-slate-50 rounded-xl border border-slate-300 text-xs" value={filtroPago} onChange={e=>setFiltroPago(e.target.value)}><option value="TODOS">Todos los pagos</option><option value="Pagada">Pagados históricos</option><option value="Por pagar">Con saldo por pagar</option></select></div>
           <div>
             <label className="block text-[11px] font-bold text-slate-600 mb-1">
               Buscar Prospecto / ID:
@@ -854,17 +1109,18 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                 <th className="py-3 px-3.5">Prospecto</th>
                 <th className="py-3 px-3.5 w-36">Monto Aprobado ($)</th>
                 <th className="py-3 px-3.5 w-28">% Bono</th>
-                <th className="py-3 px-3.5 w-32">Estado</th>
+                <th className="py-3 px-3.5 w-32">Estado Venta</th>
                 <th className="py-3 px-3.5 text-right">Bono Generado</th>
-                <th className="py-3 px-3.5 text-right">Bono Pagable</th>
-                <th className="py-3 px-3.5 min-w-[180px]">Observación</th>
+                <th className="py-3 px-3.5 text-right">Saldo Por Pagar</th>
+                <th className="py-3 px-3.5 w-44">Estatus Comisión</th>
+                <th className="py-3 px-3.5 min-w-[170px]">Observación</th>
                 <th className="py-3 px-3.5 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
               {filteredVentasList.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={11} className="py-12 text-center text-slate-400">
                     No se encontraron ventas para este rango de fecha de cita y filtros.
                   </td>
                 </tr>
@@ -933,7 +1189,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Estado */}
+                      {/* Estado Venta */}
                       <td className="py-3 px-3.5">
                         <select
                           value={r.estado}
@@ -953,10 +1209,40 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                         {r.bonoGenerado !== null ? formatCurrency(r.bonoGenerado) : '-'}
                       </td>
 
-                      {/* Bono Pagable */}
+                      {/* Saldo Por Pagar */}
                       <td className="py-3 px-3.5 text-right font-mono font-black text-emerald-700">
                         {formatCurrency(r.bonoPagable)}
-                        {v.estadoPagoHistorico && <div className="text-xs font-bold">Comisión histórica: {v.estadoPagoHistorico}{v.estadoPagoHistorico==='Pagada' ? ` · ${formatCurrency(v.bonoPagadoHistorico||0)}` : ''}</div>}
+                      </td>
+
+                      {/* Estatus Comisión (Pendiente vs Pagada) */}
+                      <td className="py-3 px-3.5">
+                        <div className="space-y-1">
+                          <select
+                            value={r.estadoPago}
+                            onChange={(e) => handleRowChange(v.id, 'estadoPago', e.target.value)}
+                            className={`w-full px-2.5 py-1.5 rounded-lg border font-extrabold text-xs cursor-pointer ${
+                              r.estadoPago === 'Pagada'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-400 ring-1 ring-emerald-500/20'
+                                : r.estado === 'Aprobada'
+                                ? 'bg-amber-50 text-amber-900 border-amber-300'
+                                : 'bg-slate-50 text-slate-600 border-slate-200'
+                            }`}
+                          >
+                            <option value="Pendiente">Pendiente</option>
+                            <option value="Pagada">Pagada</option>
+                          </select>
+                          {r.estadoPago === 'Pagada' && (
+                            <div className="flex items-center gap-1 text-[10px] text-emerald-800 font-semibold">
+                              <span>Fecha:</span>
+                              <input
+                                type="date"
+                                value={r.fechaPagoHistorico || getTodayInLA()}
+                                onChange={(e) => handleRowChange(v.id, 'fechaPagoHistorico', e.target.value)}
+                                className="px-1 py-0.5 bg-white border border-emerald-300 rounded text-[10px] font-mono outline-none"
+                              />
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Observación */}
@@ -977,6 +1263,28 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
 
                       {/* Acciones */}
                       <td className="py-3 px-3.5 text-center whitespace-nowrap space-x-1.5">
+                        {/* Botón Rápido Cambiar Estatus Comisión a Pagada o Pendiente */}
+                        {r.estadoPago !== 'Pagada' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRowChange(v.id, 'estadoPago', 'Pagada')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                            title="Cambiar estatus de comisión a Pagada"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Pagar</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleRowChange(v.id, 'estadoPago', 'Pendiente')}
+                            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                            title="Revertir comisión a Pendiente de pago"
+                          >
+                            <span>A Pendiente</span>
+                          </button>
+                        )}
+
                         {/* Botón Historial */}
                         <button
                           type="button"
@@ -1036,6 +1344,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                 </td>
                 <td className="py-3.5 px-3.5 text-right font-mono text-emerald-300 font-black">
                   {formatCurrency(totals.totalBonoPag)}
+                </td>
+                <td className="py-3.5 px-3.5 font-mono text-blue-300 text-xs font-black">
+                  Pagadas: {totals.countComisionesPagadas} ({formatCurrency(totals.totalComisionesPagadas)})
                 </td>
                 <td colSpan={2} className="py-3.5 px-3.5 text-right text-xs text-slate-300">
                   {modifiedCount > 0 ? (

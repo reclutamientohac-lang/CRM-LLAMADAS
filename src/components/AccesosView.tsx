@@ -29,6 +29,7 @@ import { UsuarioAutorizado, SolicitudAcceso, Role } from '../types';
 import { ADMIN_EMAIL, normalizeEmail, isAdminEmail, formatDateDisplay } from '../businessRules';
 
 type SubTab = 'usuarios' | 'solicitudes' | 'historial';
+type AssignableRole = 'Supervisor' | 'Telemarketing' | 'Distribuidor';
 
 export const AccesosView: React.FC = () => {
   const {
@@ -60,7 +61,7 @@ export const AccesosView: React.FC = () => {
   // Estados de formularios
   const [formEmail, setFormEmail] = useState('');
   const [formNombre, setFormNombre] = useState('');
-  const [formRol, setFormRol] = useState<'Supervisor' | 'Telemarketing'>('Telemarketing');
+  const [formRol, setFormRol] = useState<AssignableRole>('Telemarketing');
   const [formTelemarketing, setFormTelemarketing] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -486,6 +487,8 @@ export const AccesosView: React.FC = () => {
                             className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
                               u.rol === 'Supervisor'
                                 ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                : u.rol === 'Distribuidor'
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
                                 : 'bg-blue-50 text-blue-700 border-blue-200'
                             }`}
                           >
@@ -536,7 +539,7 @@ export const AccesosView: React.FC = () => {
                                 onClick={() => {
                                   setEditingUser(u);
                                   setFormNombre(u.nombre);
-                                  setFormRol('Telemarketing');
+                                  setFormRol((u.rol as AssignableRole) || 'Telemarketing');
                                   setFormTelemarketing(u.telemarketingVinculada || '');
                                   setModalError(null);
                                 }}
@@ -778,11 +781,18 @@ export const AccesosView: React.FC = () => {
                 </label>
                 <select
                   value={formRol}
-                  onChange={(e) => setFormRol(e.target.value as 'Supervisor' | 'Telemarketing')}
+                  onChange={(e) => setFormRol(e.target.value as AssignableRole)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
-                  <option value="Telemarketing">Telemarketing (Atención de llamadas)</option>
+                  <option value="Telemarketing">Telemarketing (Atención y registro de llamadas)</option>
+                  <option value="Distribuidor">Distribuidor (Prospectos, Cargar, Agenda, Dashboard e Individual)</option>
+                  <option value="Supervisor">Supervisor (Acceso completo de supervisión)</option>
                 </select>
+                {formRol === 'Distribuidor' && (
+                  <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                    ✓ El rol Distribuidor tiene acceso a: Prospectos, Cargar prospectos, Agenda, Dashboard y Reporte individual.
+                  </p>
+                )}
               </div>
 
               {formRol === 'Telemarketing' && (
@@ -879,11 +889,18 @@ export const AccesosView: React.FC = () => {
                 </label>
                 <select
                   value={formRol}
-                  onChange={(e) => setFormRol(e.target.value as 'Supervisor' | 'Telemarketing')}
+                  onChange={(e) => setFormRol(e.target.value as AssignableRole)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
-                  <option value="Telemarketing">Telemarketing</option>
+                  <option value="Telemarketing">Telemarketing (Atención y llamadas)</option>
+                  <option value="Distribuidor">Distribuidor (Prospectos, Cargar, Agenda, Dashboard e Individual)</option>
+                  <option value="Supervisor">Supervisor</option>
                 </select>
+                {formRol === 'Distribuidor' && (
+                  <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                    ✓ Distribuidor tiene acceso a: Prospectos, Cargar prospectos, Agenda, Dashboard y Reporte individual.
+                  </p>
+                )}
               </div>
 
               {formRol === 'Telemarketing' && (
@@ -965,11 +982,18 @@ export const AccesosView: React.FC = () => {
                 </label>
                 <select
                   value={formRol}
-                  onChange={(e) => setFormRol(e.target.value as 'Supervisor' | 'Telemarketing')}
+                  onChange={(e) => setFormRol(e.target.value as AssignableRole)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
-                  <option value="Telemarketing">Telemarketing</option>
+                  <option value="Telemarketing">Telemarketing (Atención y llamadas)</option>
+                  <option value="Distribuidor">Distribuidor (Prospectos, Cargar, Agenda, Dashboard e Individual)</option>
+                  <option value="Supervisor">Supervisor</option>
                 </select>
+                {formRol === 'Distribuidor' && (
+                  <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                    ✓ Distribuidor tiene acceso a: Prospectos, Cargar prospectos, Agenda, Dashboard y Reporte individual.
+                  </p>
+                )}
               </div>
 
               {formRol === 'Telemarketing' && (

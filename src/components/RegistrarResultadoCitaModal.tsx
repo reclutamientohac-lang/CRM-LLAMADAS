@@ -235,6 +235,8 @@ export const RegistrarResultadoCitaModal: React.FC<RegistrarResultadoCitaModalPr
                 'Programa un seguimiento futuro para reintentar la venta en la fecha indicada.'}
               {resultado === 'No recibió' &&
                 'Marca la cita como Realizada sin cambiar el estado del prospecto.'}
+              {(resultado === 'No se visitó' || resultado === 'No se visito') &&
+                'Marca la cita como Realizada indicando que no se llevó a cabo la visita.'}
               {(resultado === 'No interesada dio referencias' ||
                 resultado === 'No interesada sin referencias') &&
                 'Registra la retroalimentación y marca la cita como Realizada.'}

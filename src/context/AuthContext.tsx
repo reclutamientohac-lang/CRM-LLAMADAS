@@ -31,6 +31,8 @@ interface AuthContextType {
   isAuthorized: boolean;
   isAdmin: boolean;
   isSupervisor: boolean;
+  isDistribuidor: boolean;
+  isTelemarketing: boolean;
   telemarketingAgent: string;
   authError: string | null;
   loginWithGoogle: () => Promise<void>;
@@ -131,10 +133,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         async (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
-            const activo = data.activo === true && data.rol === 'Telemarketing' && typeof data.telemarketingVinculada === 'string' && data.telemarketingVinculada.trim() !== '' && data.telemarketingVinculada !== 'SIN ASIGNAR';
+            const rol = data.rol as Role;
+            const isRoleValid =
+              (rol === 'Telemarketing' && typeof data.telemarketingVinculada === 'string' && data.telemarketingVinculada.trim() !== '' && data.telemarketingVinculada !== 'SIN ASIGNAR') ||
+              (rol === 'Distribuidor') ||
+              (rol === 'Supervisor');
+
+            const activo = data.activo === true && isRoleValid;
 
             if (activo) {
-              const role: Role = 'Telemarketing';
+              const role: Role = rol || 'Telemarketing';
               const agent: string = role === 'Telemarketing' ? (data.telemarketingVinculada || '') : '';
 
               const profile: UserProfile = {
@@ -208,23 +216,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log('Sesión iniciada con Google:', emailNorm);
     } catch (err: any) {
-      console.warn('signInWithPopup falló, evaluando fallback a signInWithRedirect:', err);
+      console.warn('Error en signInWithPopup:', err);
 
-      const isPopupBlockedOrIframe =
-        err.code === 'auth/popup-blocked' ||
-        err.code === 'auth/popup-closed-by-user' ||
-        err.code === 'auth/cancelled-popup-request' ||
-        err.code === 'auth/internal-error' ||
-        (typeof window !== 'undefined' && window.self !== window.top);
+      const inIframe = typeof window !== 'undefined' && window.self !== window.top;
 
-      if (isPopupBlockedOrIframe) {
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        const msg = 'Se cerró la ventana de inicio de sesión con Google antes de completar la autenticación.';
+        setAuthError(msg);
+        throw new Error(msg);
+      }
+
+      if (inIframe) {
+        // En visor embebido / iframe, NUNCA ejecutar signInWithRedirect porque causa error 502 Bad Gateway.
+        const msg =
+          'El navegador o el visor embebido bloqueó la ventana de Google. Abre la aplicación en una pestaña nueva con el botón de abajo para iniciar sesión de forma segura.';
+        setAuthError(msg);
+        throw new Error(msg);
+      }
+
+      // Solo fuera de iframe (ventana principal del navegador) se evalúa signInWithRedirect si el popup fue bloqueado
+      if (err.code === 'auth/popup-blocked' || err.code === 'auth/internal-error') {
         try {
           await signInWithRedirect(auth, googleProvider);
           return;
         } catch (redirectErr: any) {
-          console.error('signInWithRedirect también falló:', redirectErr);
-          const msg =
-            'El navegador o el entorno bloqueó la autenticación con Google. Abre la app en una pestaña nueva para continuar.';
+          console.error('signInWithRedirect falló:', redirectErr);
+          const msg = 'El navegador bloqueó la redirección con Google. Por favor intenta de nuevo.';
           setAuthError(msg);
           throw new Error(msg);
         }
@@ -306,8 +323,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAuthError(null);
   };
 
-  // Compatibilidad con componentes existentes: privilegios globales solo del administrador.
-  const isSupervisor = isAdmin;
+  // Compatibilidad con componentes existentes: privilegios de supervisión para administrador y supervisor.
+  const isSupervisor = isAdmin || userProfile?.role === 'Supervisor';
+  const isDistribuidor = userProfile?.role === 'Distribuidor';
+  const isTelemarketing = userProfile?.role === 'Telemarketing';
   const telemarketingAgent = userProfile?.telemarketingAgent || '';
 
   return (
@@ -319,6 +338,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthorized,
         isAdmin,
         isSupervisor,
+        isDistribuidor,
+        isTelemarketing,
         telemarketingAgent,
         authError,
         loginWithGoogle,

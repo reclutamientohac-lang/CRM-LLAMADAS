@@ -36,6 +36,7 @@ import {
   UsuarioAutorizado,
   SolicitudAcceso,
   LogAcceso,
+  AgendaHistoricaImportItem,
 } from '../types';
 import {
   DEFAULT_SETTINGS,
@@ -59,6 +60,7 @@ import {
   calculateTemperature,
   findDuplicatePhone,
   getTodayInLA,
+  getDateInLA,
   isContactoEfectivo,
   getEstadoByResultado,
   getTemperaturaPostLlamada,
@@ -90,7 +92,17 @@ interface CRMContextType {
     estado: EstadoVenta;
     observacion: string;
     ultimaActualizacionOriginal?: string;
+    estadoPagoHistorico?: 'Pagada' | 'Pendiente' | null;
+    bonoPagadoHistorico?: number | null;
+    fechaPagoHistorico?: string | null;
   }>) => Promise<{ success: boolean; updatedCount: number; conflicts?: string[]; error?: string }>;
+  marcarComisionPagada: (
+    idVenta: string,
+    estadoPago: 'Pagada' | 'Pendiente',
+    fechaPago?: string | null,
+    montoPagado?: number | null,
+    observacion?: string
+  ) => Promise<{ success: boolean; error?: string }>;
   cancelarVenta: (idVenta: string, motivo: string) => Promise<{ success: boolean; error?: string }>;
   agregarReglaComision: (regla: Omit<ReglaComision, 'id'>) => Promise<{ success: boolean; error?: string }>;
   actualizarReglaComision: (id: string, updates: Partial<ReglaComision>) => Promise<{ success: boolean; error?: string }>;
@@ -98,7 +110,7 @@ interface CRMContextType {
   agregarUsuarioAutorizado: (datos: {
     email: string;
     nombre: string;
-    rol: 'Supervisor' | 'Telemarketing';
+    rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor';
     telemarketingVinculada?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   actualizarUsuarioAutorizado: (
@@ -112,7 +124,7 @@ interface CRMContextType {
   eliminarUsuarioAutorizado: (email: string) => Promise<{ success: boolean; error?: string }>;
   aprobarSolicitudAcceso: (
     solicitud: SolicitudAcceso,
-    config: { rol: 'Supervisor' | 'Telemarketing'; telemarketingVinculada?: string }
+    config: { rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor'; telemarketingVinculada?: string }
   ) => Promise<{ success: boolean; error?: string }>;
   rechazarSolicitudAcceso: (solicitud: SolicitudAcceso) => Promise<{ success: boolean; error?: string }>;
   registrarResultadoCita: (
@@ -203,6 +215,15 @@ interface CRMContextType {
     onProgress?: (progressPercent: number, savedCount: number) => void
   ) => Promise<{ success: boolean; idLote: string; savedCount: number; error?: string }>;
   undoBatch: (idLote: string) => Promise<{ success: boolean; count: number; error?: string }>;
+  importarAgendaHistoricaConVentas: (items: AgendaHistoricaImportItem[]) => Promise<{
+    success: boolean;
+    citasCreadas: number;
+    ventasCreadas: number;
+    prospectosCreados: number;
+    duplicadosOmitidos: number;
+    conflicts: string[];
+    error?: string;
+  }>;
   refreshData: () => void;
 }
 
@@ -225,7 +246,15 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [logsCargas, setLogsCargas] = useState<LogCarga[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const assignedProspectIds = useMemo(() => prospectos.filter(p => !!userProfile?.telemarketingAgent && p.telemarketing === userProfile.telemarketingAgent).map(p => p.id).sort().join('|'), [prospectos, userProfile?.telemarketingAgent]);
+  const assignedProspectIds = useMemo(() => {
+    const target = (userProfile?.telemarketingAgent || '').trim().toUpperCase();
+    if (!target) return '';
+    return prospectos
+      .filter((p) => (p.telemarketing || '').trim().toUpperCase() === target)
+      .map((p) => p.id)
+      .sort()
+      .join('|');
+  }, [prospectos, userProfile?.telemarketingAgent]);
 
   // Helper para registrar auditoría de accesos
   const registrarLogAcceso = async (
@@ -371,7 +400,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 6. Escuchar historial de cargas masivas (logCargas)
   useEffect(() => {
-    if (!user || !isAuthorized || !isSupervisor) {
+    if (!user || !isAuthorized) {
       setLogsCargas([]);
       return;
     }
@@ -391,47 +420,51 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     );
     return () => unsub();
-  }, [user, isAuthorized, isSupervisor]);
+  }, [user, isAuthorized]);
 
-  // 7. Escuchar gestiones, con permisos por prospecto actualmente asignado.
+  // 7. Escuchar gestiones, con permisos por prospecto actualmente asignado o rol global.
   useEffect(() => {
     if (!user || !isAuthorized) { setGestiones([]); return; }
-    return subscribeCRMRecords('gestiones', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+    const canSeeAll = isSupervisor || userProfile?.role === 'Distribuidor';
+    return subscribeCRMRecords('gestiones', canSeeAll, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
       const list = rows as any[];
       list.sort((a,b) => (b.fechaHora || '').localeCompare(a.fechaHora || ''));
       setGestiones(list);
-    }, err => { console.error('Error cargando gestiones:', err); setError('Error al consultar gestiones.'); });
-  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
+    }, err => { console.warn('Aviso cargando gestiones:', err); });
+  }, [user, isAuthorized, isSupervisor, userProfile?.role, isSupervisor ? '' : assignedProspectIds]);
 
-  // 8. Escuchar citas, con permisos por prospecto actualmente asignado.
+  // 8. Escuchar citas, con permisos por prospecto actualmente asignado o rol global.
   useEffect(() => {
     if (!user || !isAuthorized) { setCitas([]); return; }
-    return subscribeCRMRecords('citas', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+    const canSeeAll = isSupervisor || userProfile?.role === 'Distribuidor';
+    return subscribeCRMRecords('citas', canSeeAll, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
       const list = rows as any[];
       list.sort((a,b) => (b.fechaCita || '').localeCompare(a.fechaCita || ''));
       setCitas(list);
-    }, err => { console.error('Error cargando citas:', err); setError('Error al consultar citas.'); });
-  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
+    }, err => { console.warn('Aviso cargando citas:', err); });
+  }, [user, isAuthorized, isSupervisor, userProfile?.role, isSupervisor ? '' : assignedProspectIds]);
 
-  // 9. Escuchar retroalimentaciones, con permisos por prospecto actualmente asignado.
+  // 9. Escuchar retroalimentaciones, con permisos por prospecto actualmente asignado o rol global.
   useEffect(() => {
     if (!user || !isAuthorized) { setRetroalimentaciones([]); return; }
-    return subscribeCRMRecords('retroalimentaciones', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+    const canSeeAll = isSupervisor || userProfile?.role === 'Distribuidor';
+    return subscribeCRMRecords('retroalimentaciones', canSeeAll, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
       const list = rows as any[];
       list.sort((a,b) => (b.fecha || '').localeCompare(a.fecha || ''));
       setRetroalimentaciones(list);
-    }, err => { console.error('Error cargando retroalimentaciones:', err); setError('Error al consultar retroalimentaciones.'); });
-  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
+    }, err => { console.warn('Aviso cargando retroalimentaciones:', err); });
+  }, [user, isAuthorized, isSupervisor, userProfile?.role, isSupervisor ? '' : assignedProspectIds]);
 
-  // 10. Escuchar ventas, con permisos por prospecto actualmente asignado.
+  // 10. Escuchar ventas, con permisos por prospecto actualmente asignado o rol global.
   useEffect(() => {
     if (!user || !isAuthorized) { setVentas([]); return; }
-    return subscribeCRMRecords('ventas', isSupervisor, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
+    const canSeeAll = isSupervisor || userProfile?.role === 'Distribuidor';
+    return subscribeCRMRecords('ventas', canSeeAll, assignedProspectIds ? assignedProspectIds.split('|') : [], rows => {
       const list = rows as any[];
       list.sort((a,b) => (b.fechaReporte || '').localeCompare(a.fechaReporte || ''));
       setVentas(list);
-    }, err => { console.error('Error cargando ventas:', err); setError('Error al consultar ventas.'); });
-  }, [user, isAuthorized, isSupervisor, isSupervisor ? '' : assignedProspectIds]);
+    }, err => { console.warn('Aviso cargando ventas:', err); });
+  }, [user, isAuthorized, isSupervisor, userProfile?.role, isSupervisor ? '' : assignedProspectIds]);
 
   // 10.1 Escuchar logVentas (solo Supervisor y Administrador)
   useEffect(() => {
@@ -470,10 +503,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const prospectosColRef = collection(db, 'prospectos');
 
-    // Supervisor y Administrador ven todos los prospectos
+    // Supervisor, Administrador y Distribuidor ven todos los prospectos
     // Telemarketing solo ve los asignados a su nombre de agente
     let q = query(prospectosColRef);
-    if (!isSupervisor) {
+    if (!isSupervisor && userProfile?.role !== 'Distribuidor') {
       q = query(prospectosColRef, where('telemarketing', '==', userProfile?.telemarketingAgent || '__SIN_VINCULO__'));
     }
 
@@ -525,7 +558,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     return () => unsub();
-  }, [user, isAuthorized, isSupervisor, userProfile?.telemarketingAgent]);
+  }, [user, isAuthorized, isSupervisor, userProfile?.telemarketingAgent, userProfile?.role]);
 
   // Agregar un prospecto nuevo aplicando las 4 reglas oficiales de teléfono
   const addProspecto = async (
@@ -1539,6 +1572,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       estado: EstadoVenta;
       observacion: string;
       ultimaActualizacionOriginal?: string;
+      estadoPagoHistorico?: 'Pagada' | 'Pendiente' | null;
+      bonoPagadoHistorico?: number | null;
+      fechaPagoHistorico?: string | null;
     }>
   ): Promise<{ success: boolean; updatedCount: number; conflicts?: string[]; error?: string }> => {
     if (!ventasActualizadas || ventasActualizadas.length === 0) {
@@ -1572,8 +1608,22 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           continue;
         }
 
+        const estadoPago = vMod.estadoPagoHistorico !== undefined && vMod.estadoPagoHistorico !== null
+          ? vMod.estadoPagoHistorico
+          : (ventaActual.estadoPagoHistorico || 'Pendiente');
+
         const bonoGenerado = calculateBonoGenerado(vMod.montoAprobado, vMod.porcentajeBono);
-        const bonoPagable = calculateBonoPagable(vMod.estado, bonoGenerado, ventaActual.estadoPagoHistorico);
+        const bonoPagable = calculateBonoPagable(vMod.estado, bonoGenerado, estadoPago);
+
+        const bonoPagado = estadoPago === 'Pagada'
+          ? (vMod.bonoPagadoHistorico !== undefined && vMod.bonoPagadoHistorico !== null
+              ? vMod.bonoPagadoHistorico
+              : (ventaActual.bonoPagadoHistorico ?? bonoGenerado ?? 0))
+          : null;
+
+        const fechaPago = estadoPago === 'Pagada'
+          ? (vMod.fechaPagoHistorico || ventaActual.fechaPagoHistorico || getTodayInLA())
+          : null;
 
         // Registrar en logVentas
         const idLog = generateLogVentaId();
@@ -1588,8 +1638,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           porcentajeNuevo: vMod.porcentajeBono,
           estadoAnterior: ventaActual.estado,
           estadoNuevo: vMod.estado,
-          observacionAnterior: ventaActual.observacion,
-          observacionNueva: vMod.observacion,
+          observacionAnterior: `${ventaActual.observacion || ''}${ventaActual.estadoPagoHistorico ? ` [Pago: ${ventaActual.estadoPagoHistorico}]` : ''}`,
+          observacionNueva: `${vMod.observacion || ''}${estadoPago ? ` [Pago: ${estadoPago}${fechaPago ? ` el ${fechaPago}` : ''}]` : ''}`,
           tipoCambio: vMod.estado === 'Cancelada' ? 'CANCELAR' : 'ACTUALIZAR',
         };
         batch.set(doc(db, 'logVentas', idLog), logDoc);
@@ -1602,6 +1652,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           estado: vMod.estado,
           bonoGenerado,
           bonoPagable,
+          estadoPagoHistorico: estadoPago,
+          bonoPagadoHistorico: bonoPagado,
+          fechaPagoHistorico: fechaPago,
           observacion: vMod.observacion,
           ultimaActualizacion: nowIso,
           modificadoPor: userEmail,
@@ -1627,6 +1680,71 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatedCount: 0,
         error: err.message || 'Error al actualizar ventas.',
       };
+    }
+  };
+
+  // Marcar una comisión específica como pagada o revertir a pendiente
+  const marcarComisionPagada = async (
+    idVenta: string,
+    estadoPago: 'Pagada' | 'Pendiente',
+    fechaPago?: string | null,
+    montoPagado?: number | null,
+    observacion?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const ventaActual = ventas.find((v) => v.id === idVenta);
+      if (!ventaActual) return { success: false, error: 'Venta no encontrada.' };
+
+      const userEmail = user?.email || userProfile?.displayName || 'Supervisor';
+      const nowIso = new Date().toISOString();
+      const nowLA = formatDateTimeLA(new Date());
+
+      const bonoGenerado = ventaActual.bonoGenerado;
+      const bonoPagable = calculateBonoPagable(ventaActual.estado, bonoGenerado, estadoPago);
+      const bonoFinal = estadoPago === 'Pagada'
+        ? (montoPagado !== undefined && montoPagado !== null ? montoPagado : (ventaActual.bonoPagadoHistorico ?? bonoGenerado ?? 0))
+        : null;
+      const fechaFinal = estadoPago === 'Pagada'
+        ? (fechaPago || ventaActual.fechaPagoHistorico || getTodayInLA())
+        : null;
+
+      const batch = writeBatch(db);
+
+      const idLog = generateLogVentaId();
+      const logDoc: LogVenta = {
+        id: idLog,
+        idVenta: ventaActual.id,
+        usuario: userEmail,
+        fechaHora: nowLA,
+        montoAnterior: ventaActual.montoAprobado,
+        montoNuevo: ventaActual.montoAprobado,
+        porcentajeAnterior: ventaActual.porcentajeBono,
+        porcentajeNuevo: ventaActual.porcentajeBono,
+        estadoAnterior: ventaActual.estado,
+        estadoNuevo: ventaActual.estado,
+        observacionAnterior: `${ventaActual.observacion || ''} [Pago: ${ventaActual.estadoPagoHistorico || 'Pendiente'}]`,
+        observacionNueva: `${observacion !== undefined ? observacion : (ventaActual.observacion || '')} [Pago: ${estadoPago}${fechaFinal ? ` el ${fechaFinal}` : ''}]`,
+        tipoCambio: 'ACTUALIZAR',
+      };
+      batch.set(doc(db, 'logVentas', idLog), logDoc);
+
+      const ventaRef = doc(db, 'ventas', ventaActual.id);
+      batch.update(ventaRef, {
+        bonoPagable,
+        estadoPagoHistorico: estadoPago,
+        bonoPagadoHistorico: bonoFinal,
+        fechaPagoHistorico: fechaFinal,
+        ...(observacion !== undefined ? { observacion } : {}),
+        ultimaActualizacion: nowIso,
+        modificadoPor: userEmail,
+      });
+
+      await batch.commit();
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error actualizando pago de comisión:', err);
+      handleFirestoreError(err, OperationType.WRITE, 'ventas');
+      return { success: false, error: err.message || 'Error al actualizar pago de comisión.' };
     }
   };
 
@@ -1702,7 +1820,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const agregarUsuarioAutorizado = async (datos: {
     email: string;
     nombre: string;
-    rol: 'Supervisor' | 'Telemarketing';
+    rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor';
     telemarketingVinculada?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     try {
@@ -1834,7 +1952,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 5. Aprobar solicitud de acceso
   const aprobarSolicitudAcceso = async (
     solicitud: SolicitudAcceso,
-    config: { rol: 'Supervisor' | 'Telemarketing'; telemarketingVinculada?: string }
+    config: { rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor'; telemarketingVinculada?: string }
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const emailNorm = normalizeEmail(solicitud.email);
@@ -1905,6 +2023,297 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Importar agenda histórica con ventas y bonos vinculados a prospectos (evitando duplicados)
+  const importarAgendaHistoricaConVentas = async (
+    items: AgendaHistoricaImportItem[]
+  ): Promise<{
+    success: boolean;
+    citasCreadas: number;
+    ventasCreadas: number;
+    prospectosCreados: number;
+    duplicadosOmitidos: number;
+    conflicts: string[];
+    error?: string;
+  }> => {
+    try {
+      const nowISO = new Date().toISOString();
+      const email = user?.email || 'admin@crmllamadas.local';
+
+      let citasCreadas = 0;
+      let ventasCreadas = 0;
+      let prospectosCreados = 0;
+      let duplicadosOmitidos = 0;
+      const conflicts: string[] = [];
+
+      // Mapeo de prospectos existentes por teléfono normalizado y por nombre
+      const phoneToProspect = new Map<string, Prospecto>();
+      const nameToProspect = new Map<string, Prospecto>();
+      prospectos.forEach((p) => {
+        const ph = normalizePhone(p.telefono);
+        if (ph) phoneToProspect.set(ph, p);
+        const nm = (p.nombre || '').trim().toLowerCase();
+        if (nm) nameToProspect.set(nm, p);
+      });
+
+      // Conjunto de citas existentes para detección precisa de duplicados
+      const existingCitasSet = new Set<string>();
+      const existingCitaIds = new Set<string>();
+      citas.forEach((c) => {
+        existingCitaIds.add(c.id);
+        const d = getDateInLA(c.fechaCita) || c.fechaCita;
+        const key = `${c.idProspecto}_${d}_${(c.horaCita || '').trim().toLowerCase()}`;
+        existingCitasSet.add(key);
+      });
+
+      // Ventas existentes para no duplicar ventas
+      const existingVentasCitaIds = new Set<string>();
+      ventas.forEach((v) => {
+        if (v.idCita) existingVentasCitaIds.add(v.idCita);
+      });
+
+      const batches: ReturnType<typeof writeBatch>[] = [writeBatch(db)];
+      let currentBatchOpCount = 0;
+
+      const addToBatch = (fn: (b: ReturnType<typeof writeBatch>) => void) => {
+        if (currentBatchOpCount >= 400) {
+          batches.push(writeBatch(db));
+          currentBatchOpCount = 0;
+        }
+        fn(batches[batches.length - 1]);
+        currentBatchOpCount++;
+      };
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const rawPhone = item.telefono || '';
+        const normPhone = normalizePhone(rawPhone);
+        const normName = (item.nombreProspecto || '').trim().toLowerCase();
+
+        // 1. Vincular al prospecto correspondiente
+        let matchedProspect =
+          (normPhone ? phoneToProspect.get(normPhone) : null) ||
+          (normName ? nameToProspect.get(normName) : null);
+        let prospectoId = matchedProspect?.id;
+
+        // Si no existe, crear el prospecto para evitar citas huérfanas
+        if (!matchedProspect) {
+          prospectoId = generateProspectoId();
+          const cleanLeadPhone = normPhone || rawPhone.replace(/\D/g, '') || `555${String(Date.now()).slice(-7)}`;
+          const newLead: Prospecto = {
+            id: prospectoId,
+            fechaRecepcion: item.fechaCita || getTodayInLA(),
+            propietario: 'Propietario Histórico',
+            tipoCarga: 'Manual',
+            tipoProspecto: 'Histórico',
+            origen: 'Agenda Histórica',
+            nombre: item.nombreProspecto || `Prospecto ${cleanLeadPhone}`,
+            telefono: cleanLeadPhone,
+            ciudadZona: item.direccion ? item.direccion.split(',')[0].trim() : 'Los Ángeles',
+            telemarketing: item.telemarketing || 'SIN ASIGNAR',
+            temperatura: 'Frío',
+            contexto: `Cargado desde histórico de agenda. ${item.observaciones || ''}`.trim(),
+            llamadoPorEmprendedor: 'No',
+            ultimoContacto: item.fechaCita || null,
+            ultimoResultado: item.resultado || 'Cita',
+            intentos: 1,
+            contactosEfectivos: 1,
+            proximaAccion: null,
+            fechaProximaAccion: null,
+            idCita: null,
+            estado: item.resultado === 'Venta' ? 'Venta' : item.estadoCita === 'Realizada' ? 'Contactado' : 'Cita agendada',
+            observacion: item.observaciones || 'Importado desde agenda histórica',
+            creadoPor: email,
+            creadoEn: nowISO,
+            modificadoEn: nowISO,
+            archivado: false,
+          };
+
+          if (normPhone) phoneToProspect.set(normPhone, newLead);
+          if (normName) nameToProspect.set(normName, newLead);
+          matchedProspect = newLead;
+
+          addToBatch((b) => {
+            b.set(doc(db, 'prospectos', newLead.id), newLead);
+          });
+          prospectosCreados++;
+        }
+
+        const finalProspectoId: string = prospectoId || matchedProspect?.id || generateProspectoId();
+
+        // 2. Control de duplicados de cita ("evitando se duplique")
+        const citaDate = getDateInLA(item.fechaCita) || item.fechaCita;
+        const horaCitaNorm = (item.horaCita || '').trim().toLowerCase();
+        const citaDupKey = `${finalProspectoId}_${citaDate}_${horaCitaNorm}`;
+
+        if ((item.id && existingCitaIds.has(item.id)) || existingCitasSet.has(citaDupKey)) {
+          duplicadosOmitidos++;
+          // Si la cita ya existía pero la fila trae una venta no registrada previamente, asociarla
+          const existingCita = citas.find(
+            (c) =>
+              (item.id && c.id === item.id) ||
+              (c.idProspecto === finalProspectoId && (getDateInLA(c.fechaCita) || c.fechaCita) === citaDate)
+          );
+          if (
+            existingCita &&
+            (item.montoAprobado || item.resultado === 'Venta') &&
+            !existingVentasCitaIds.has(existingCita.id)
+          ) {
+            const idVenta = generateVentaId();
+            const monto = typeof item.montoAprobado === 'number' ? item.montoAprobado : Number(item.montoAprobado) || null;
+            const pct = typeof item.porcentajeBono === 'number' ? item.porcentajeBono : Number(item.porcentajeBono) || 0.015;
+            const bonoGen =
+              item.bonoGenerado !== undefined && item.bonoGenerado !== null
+                ? Number(item.bonoGenerado)
+                : calculateBonoGenerado(monto, pct);
+            const estadoV = item.estadoVenta || (monto ? 'Aprobada' : 'Pendiente');
+            const estadoP = item.estadoPago === 'Pagada' ? 'Pagada' : 'Pendiente';
+            const bonoPag = calculateBonoPagable(estadoV, bonoGen, estadoP);
+
+            const nuevaVenta: Venta = {
+              id: idVenta,
+              idProspecto: finalProspectoId,
+              idCita: existingCita.id,
+              fechaReporte: citaDate,
+              telemarketing: item.telemarketing || existingCita.telemarketing,
+              montoAprobado: monto,
+              estado: estadoV,
+              porcentajeBono: pct,
+              bonoGenerado: bonoGen,
+              bonoPagable: bonoPag,
+              estadoPagoHistorico: estadoP,
+              fechaPagoHistorico: item.fechaPago || null,
+              ultimaActualizacion: nowISO,
+              observacion: item.observaciones || 'Venta vinculada a cita histórica existente',
+              modificadoPor: email,
+            };
+
+            addToBatch((b) => {
+              b.set(doc(db, 'ventas', idVenta), nuevaVenta);
+            });
+            existingVentasCitaIds.add(existingCita.id);
+            ventasCreadas++;
+          }
+          continue;
+        }
+
+        // 3. Crear Cita Nueva
+        const idCita = item.id || generateCitaId();
+        existingCitaIds.add(idCita);
+        existingCitasSet.add(citaDupKey);
+
+        const nuevaCita: Cita = {
+          id: idCita,
+          idProspecto: finalProspectoId,
+          fechaCreacion: nowISO,
+          telemarketing: item.telemarketing || matchedProspect?.telemarketing || 'SIN ASIGNAR',
+          fechaCita: citaDate,
+          horaCita: item.horaCita || '10:00 AM',
+          asunto: item.asunto || `Demostración - ${matchedProspect?.nombre || 'Cliente'}`,
+          direccion: item.direccion || `${matchedProspect?.ciudadZona || 'Los Ángeles'}, CA`,
+          linkGoogleMaps: generateGoogleMapsLink(item.direccion || matchedProspect?.ciudadZona || 'Los Ángeles, CA'),
+          descripcion: item.observaciones || 'Cita de agenda histórica',
+          quienAtiende: item.quienAtiende || 'Distribuidor / Supervisor',
+          invitado: item.invitado || '',
+          estadoCita: item.estadoCita || (item.resultado ? 'Realizada' : 'Agendada'),
+          idEventoCalendar: '',
+          enlaceCalendar: '',
+          ultimaActualizacion: nowISO,
+        };
+
+        addToBatch((b) => {
+          b.set(doc(db, 'citas', idCita), nuevaCita);
+        });
+        citasCreadas++;
+
+        // 4. Crear Venta si corresponde
+        let idVentaGenerada = '';
+        const hasVenta =
+          item.resultado === 'Venta' ||
+          (item.montoAprobado !== null && item.montoAprobado !== undefined && Number(item.montoAprobado) > 0);
+
+        if (hasVenta) {
+          idVentaGenerada = generateVentaId();
+          const monto = typeof item.montoAprobado === 'number' ? item.montoAprobado : Number(item.montoAprobado) || null;
+          const pct = typeof item.porcentajeBono === 'number' ? item.porcentajeBono : Number(item.porcentajeBono) || 0.015;
+          const bonoGen =
+            item.bonoGenerado !== undefined && item.bonoGenerado !== null
+              ? Number(item.bonoGenerado)
+              : calculateBonoGenerado(monto, pct);
+          const estadoV = item.estadoVenta || (monto ? 'Aprobada' : 'Pendiente');
+          const estadoP = item.estadoPago === 'Pagada' ? 'Pagada' : 'Pendiente';
+          const bonoPag = calculateBonoPagable(estadoV, bonoGen, estadoP);
+
+          const nuevaVenta: Venta = {
+            id: idVentaGenerada,
+            idProspecto: finalProspectoId,
+            idCita: idCita,
+            fechaReporte: citaDate,
+            telemarketing: nuevaCita.telemarketing,
+            montoAprobado: monto,
+            estado: estadoV,
+            porcentajeBono: pct,
+            bonoGenerado: bonoGen,
+            bonoPagable: bonoPag,
+            estadoPagoHistorico: estadoP,
+            fechaPagoHistorico: item.fechaPago || null,
+            ultimaActualizacion: nowISO,
+            observacion: item.observaciones || 'Venta importada de agenda histórica',
+            modificadoPor: email,
+          };
+
+          addToBatch((b) => {
+            b.set(doc(db, 'ventas', idVentaGenerada), nuevaVenta);
+          });
+          existingVentasCitaIds.add(idCita);
+          ventasCreadas++;
+        }
+
+        // 5. Registrar Retroalimentación si trae resultado o venta
+        if (item.resultado || hasVenta) {
+          const idRetro = generateRetroalimentacionId();
+          const nuevaRetro: Retroalimentacion = {
+            id: idRetro,
+            idCita: idCita,
+            idProspecto: finalProspectoId,
+            fecha: `${citaDate}, ${item.horaCita || '12:00 PM'}`,
+            resultado: item.resultado || (hasVenta ? 'Venta' : ('Realizada' as any)),
+            observacion: item.observaciones || 'Resultado histórico registrado',
+            idVenta: idVentaGenerada || '',
+            creadoPor: email,
+            creadoEn: nowISO,
+          };
+          addToBatch((b) => {
+            b.set(doc(db, 'retroalimentaciones', idRetro), nuevaRetro);
+          });
+        }
+      }
+
+      for (const b of batches) {
+        await b.commit();
+      }
+
+      return {
+        success: true,
+        citasCreadas,
+        ventasCreadas,
+        prospectosCreados,
+        duplicadosOmitidos,
+        conflicts,
+      };
+    } catch (err: any) {
+      console.error('Error importando agenda histórica:', err);
+      return {
+        success: false,
+        citasCreadas: 0,
+        ventasCreadas: 0,
+        prospectosCreados: 0,
+        duplicadosOmitidos: 0,
+        conflicts: [],
+        error: err.message || 'Error al guardar la agenda histórica en la base de datos.',
+      };
+    }
+  };
+
   const refreshData = () => {
     setProspectos([...prospectos]);
   };
@@ -1927,6 +2336,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loading,
         error,
         actualizarVentas,
+        marcarComisionPagada,
         cancelarVenta,
         agregarReglaComision,
         actualizarReglaComision,
@@ -1954,6 +2364,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         clearSampleData,
         importExcelBatch,
         undoBatch,
+        importarAgendaHistoricaConVentas,
         refreshData,
       }}
     >

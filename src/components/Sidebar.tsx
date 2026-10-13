@@ -98,10 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       activeInStage1: true,
     },
     {
-      id: 'reportes', label: 'Reportes', icon: BarChart3, activeInStage1: true,
-    },
-    {
-      id: 'consulta', label: 'Buscador global', icon: Users, activeInStage1: true, supervisorOnly: true,
+      id: 'reportes', label: 'Resumen de gestión', icon: BarChart3, activeInStage1: true,
     },
     {
       id: 'respaldo',
@@ -170,6 +167,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <ShieldCheck className="w-3 h-3" />
                     <span>Administrador</span>
                   </span>
+                ) : userProfile?.role === 'Distribuidor' ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-400 font-semibold">
+                    <Users className="w-3 h-3" />
+                    <span>Distribuidor</span>
+                  </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-sky-400 font-semibold">
                     <Headset className="w-3 h-3" />
@@ -188,8 +190,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           Navegación Principal
         </div>
         {navItems.map((item) => {
-          // If supervisorOnly and not supervisor, hide or disable
-          if (!canAccessTab(item.id, isAdmin)) {
+          if (!canAccessTab(item.id, userProfile?.role, isAdmin)) {
             return null;
           }
 

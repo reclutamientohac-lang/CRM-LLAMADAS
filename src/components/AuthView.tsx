@@ -7,6 +7,8 @@ export const AuthView: React.FC = () => {
   const [inProgress, setInProgress] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  const currentAppUrl = typeof window !== 'undefined' ? window.location.href : '#';
+
   const handleGoogleLogin = async () => {
     setLocalError(null);
     clearAuthError();
@@ -56,18 +58,24 @@ export const AuthView: React.FC = () => {
 
           {/* Mensaje de error / Instrucciones */}
           {errorMessage && (
-            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2 text-xs text-rose-800 animate-in fade-in duration-200">
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-2.5 text-xs text-rose-800 animate-in fade-in duration-200">
               <div className="flex items-start gap-2.5 font-bold">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
-              <div className="pl-6.5 text-[11px] text-rose-700 space-y-1">
+              <div className="pl-6.5 text-[11px] text-rose-700 space-y-2">
                 <p>
                   Si la ventana emergente fue bloqueada o te encuentras dentro de un visor web:
                 </p>
-                <div className="font-semibold text-rose-900">
-                  👉 Abre la app en una pestaña nueva o en tu navegador directamente.
-                </div>
+                <a
+                  href={currentAppUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0D2240] text-white font-bold hover:bg-[#14325a] transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 text-[#B8922A]" />
+                  <span>Abrir CRM en pestaña nueva</span>
+                </a>
               </div>
             </div>
           )}

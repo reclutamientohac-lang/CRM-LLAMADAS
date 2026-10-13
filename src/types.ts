@@ -3,7 +3,7 @@
  * Etapa 1 & 2: Arquitectura extensible para telemarketing, agendamiento de citas y carga masiva por Excel
  */
 
-export type Role = 'Administrador' | 'Supervisor' | 'Telemarketing';
+export type Role = 'Administrador' | 'Supervisor' | 'Telemarketing' | 'Distribuidor';
 
 export type Temperatura = 'Hot' | 'Tibio' | 'Frío' | '';
 
@@ -23,6 +23,7 @@ export type ResultadoCita =
   | 'Venta'
   | 'Recibió sin compra'
   | 'No se visitó'
+  | 'No se visito'
   | 'No recibió'
   | 'Reprogramar'
   | 'Venta futura'
@@ -183,7 +184,7 @@ export interface UserProfile {
 export interface UsuarioAutorizado {
   email: string; // ID del documento (correo en minúsculas)
   nombre: string;
-  rol: 'Supervisor' | 'Telemarketing';
+  rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor';
   telemarketingVinculada?: string; // Obligatoria si el rol es Telemarketing (ej: GERAL, IRENE, MAIRUT)
   activo: boolean; // true / false
   agregadoPor: string;
@@ -415,6 +416,8 @@ export interface DrillDownItemRecord {
 
 export interface ReporteIndividualKPIs {
   prospectosAsignados: number;
+  prospectosAsignadosPeriodo?: number;
+  prospectosTotalesCartera?: number;
   contactosRealizados: number;
   contactosEfectivos: number;
   citasAgendadas: number;
@@ -433,7 +436,11 @@ export interface EvolucionDiariaItem {
   fecha: string;
   fechaDisplay: string;
   llamadas: number;
+  efectivos?: number;
   citas: number;
+  efectividadPct?: number;
+  conversionCitaPct?: number;
+  resultadosDetalle?: Record<string, number>;
 }
 
 export interface DistribucionResultadoLlamadaItem {
@@ -442,3 +449,57 @@ export interface DistribucionResultadoLlamadaItem {
   pct: number;
   color: string;
 }
+
+// --- NOTIFICACIONES EN EL NAVEGADOR ---
+export interface AppNotificationItem {
+  id: string;
+  tipo: 'cita' | 'seguimiento' | 'sistema';
+  titulo: string;
+  mensaje: string;
+  timestamp: string; // ISO
+  leido: boolean;
+  minutosRestantes?: number;
+  prospectoId?: string;
+  citaId?: string;
+  nombreProspecto?: string;
+  telefonoProspecto?: string;
+  horaDisplay?: string;
+  direccion?: string;
+}
+
+export interface NotificationPreferences {
+  sonidoHabilitado: boolean;
+  alertasCitas: boolean;
+  alertasSeguimientos: boolean;
+  minutosAnticipacionCitas: number; // por defecto 15
+  minutosAnticipacionSeguimientos: number; // por defecto 15
+}
+
+// --- IMPORTACIÓN MASIVA DE AGENDA HISTÓRICA CON VENTAS Y BONOS ---
+export interface AgendaHistoricaImportItem {
+  id?: string;
+  fechaCita: string;
+  horaCita?: string;
+  nombreProspecto: string;
+  telefono: string;
+  telemarketing?: string;
+  quienAtiende?: string;
+  asunto?: string;
+  direccion?: string;
+  invitado?: string;
+  estadoCita?: EstadoCita;
+  resultado?: ResultadoCita;
+  montoAprobado?: number | null;
+  porcentajeBono?: number | null;
+  bonoGenerado?: number | null;
+  bonoPagable?: number;
+  estadoVenta?: EstadoVenta;
+  estadoPago?: 'Pagada' | 'Pendiente';
+  fechaPago?: string | null;
+  observaciones?: string;
+  prospectoExistenteId?: string;
+  esDuplicada?: boolean;
+  motivoDuplicada?: string;
+  esNuevoProspecto?: boolean;
+}
+

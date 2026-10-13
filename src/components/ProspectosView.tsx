@@ -55,6 +55,8 @@ const INITIAL_FILTERS: FilterState = {
 export const ProspectosView: React.FC = () => {
   const {
     prospectos,
+    citas,
+    ventas,
     settings,
     logsCargas,
     loading,
@@ -113,12 +115,14 @@ export const ProspectosView: React.FC = () => {
   // Statistics counters
   const counters = useMemo(() => {
     const active = prospectos.filter((p) => !p.archivado);
+    const isSinAsignar = (tm?: string) => !tm || tm === SIN_ASIGNAR || tm.trim().toUpperCase() === 'SIN ASIGNAR';
     return {
       totalActivos: active.length,
       hot: active.filter((p) => p.temperatura === 'Hot').length,
       tibio: active.filter((p) => p.temperatura === 'Tibio').length,
       frio: active.filter((p) => p.temperatura === 'Frío').length,
-      sinAsignar: active.filter((p) => p.telemarketing === SIN_ASIGNAR).length,
+      sinAsignar: active.filter((p) => isSinAsignar(p.telemarketing)).length,
+      asignados: active.filter((p) => !isSinAsignar(p.telemarketing)).length,
       archivados: prospectos.filter((p) => p.archivado).length,
     };
   }, [prospectos]);
@@ -135,20 +139,31 @@ export const ProspectosView: React.FC = () => {
 
       // 2. Búsqueda por texto (nombre, teléfono o ID)
       if (filters.search.trim()) {
-        const query = filters.search.toLowerCase().trim();
-        const matchName = p.nombre.toLowerCase().includes(query);
-        const matchPhone = p.telefono.includes(query);
-        const matchId = p.id.toLowerCase().includes(query);
-        const matchProp = p.propietario.toLowerCase().includes(query);
-        const matchLote = (p.idLote || '').toLowerCase().includes(query);
-        if (!matchName && !matchPhone && !matchId && !matchProp && !matchLote) {
-          return false;
-        }
+        const normalize = (v: string) => (v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        const query = normalize(filters.search);
+        const phone = /^[\d\s()+.\-]+$/.test(query) ? query.replace(/\D/g, '') : '';
+        const match = [p.nombre,p.id,p.propietario,p.idLote || '',p.telemarketing].some(v=>normalize(v).includes(query))
+          || !!phone && p.telefono.replace(/\D/g,'').includes(phone)
+          || citas.some(c=>c.idProspecto===p.id && [c.id,c.asunto].some(v=>normalize(v).includes(query)))
+          || isSupervisor && ventas.some(v=>v.idProspecto===p.id && normalize(v.id).includes(query));
+        if (!match) return false;
       }
 
       // 3. Telemarketing
-      if (filters.telemarketing && p.telemarketing !== filters.telemarketing) {
-        return false;
+      if (filters.telemarketing) {
+        const isTargetSinAsignar =
+          filters.telemarketing === SIN_ASIGNAR ||
+          filters.telemarketing.trim().toUpperCase() === 'SIN ASIGNAR';
+        const isTargetAsignados =
+          filters.telemarketing.trim().toUpperCase() === 'ASIGNADOS';
+        const pTm = (p.telemarketing || '').trim().toUpperCase();
+        if (isTargetSinAsignar) {
+          if (pTm !== '' && pTm !== 'SIN ASIGNAR') return false;
+        } else if (isTargetAsignados) {
+          if (!pTm || pTm === 'SIN ASIGNAR') return false;
+        } else {
+          if (pTm !== filters.telemarketing.trim().toUpperCase()) return false;
+        }
       }
 
       // 4. Estado
@@ -196,7 +211,7 @@ export const ProspectosView: React.FC = () => {
 
       return true;
     });
-  }, [prospectos, filters]);
+  }, [prospectos, citas, ventas, isSupervisor, filters]);
 
   // Sorting logic
   const sortedProspectos = useMemo(() => {
@@ -368,6 +383,23 @@ export const ProspectosView: React.FC = () => {
 
           <button
             onClick={() =>
+              setFilters((p) => ({
+                ...p,
+                telemarketing: filters.telemarketing === 'ASIGNADOS' ? '' : 'ASIGNADOS',
+                mostrarArchivados: false,
+              }))
+            }
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              filters.telemarketing === 'ASIGNADOS' && !filters.mostrarArchivados
+                ? 'bg-emerald-700 text-white shadow-sm'
+                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+            }`}
+          >
+            <span>👥 Asignados: {counters.asignados}</span>
+          </button>
+
+          <button
+            onClick={() =>
               setFilters((p) => ({ ...p, mostrarArchivados: !p.mostrarArchivados }))
             }
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
@@ -397,7 +429,7 @@ export const ProspectosView: React.FC = () => {
                 setFilters((p) => ({ ...p, search: e.target.value }));
                 setCurrentPage(1);
               }}
-              placeholder="Buscar por nombre, teléfono o ID (ej: PROS-2026...)..."
+              placeholder="Buscar nombre, teléfono, propietario, telemarketing o cita…"
               className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:border-[#0D2240] focus:ring-2 focus:ring-[#0D2240]/10 text-sm outline-none transition-all"
             />
             {filters.search && (

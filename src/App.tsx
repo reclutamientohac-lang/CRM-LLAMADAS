@@ -1,4 +1,4 @@
-import { canAccessTab } from './accessPolicy';
+import { canAccessTab, getDefaultTabForRole } from './accessPolicy';
 import './stage78/style.css';
 import { CalendarSync } from './components/CalendarSync';
 import { ReportesView } from './components/ReportesView';
@@ -83,14 +83,16 @@ function MainLayout() {
   }, []);
 
   useEffect(() => {
-    if (!canAccessTab(currentTab, isAdmin)) setCurrentTab('trabajo');
+    if (!canAccessTab(currentTab, userProfile?.role, isAdmin)) {
+      setCurrentTab(getDefaultTabForRole(userProfile?.role, isAdmin));
+    }
     if (!isAuthorized) {
       setModalLlamadaProspecto(null);
       setModalResultadoCita(null);
       setSelectedCitaDetail(null);
       setDrawerProspecto(null);
     }
-  }, [isAdmin, isAuthorized, currentTab]);
+  }, [isAdmin, userProfile?.role, isAuthorized, currentTab]);
 
   if (authLoading) {
     return (
@@ -154,7 +156,7 @@ function MainLayout() {
       case 'consulta':
         return 'Buscador global';
       case 'reportes':
-        return 'Reportes';
+        return 'Resumen de gestión';
       case 'respaldo':
         return 'Respaldo';
       default:
@@ -202,7 +204,8 @@ function MainLayout() {
           </div>
 
           {/* Right Header Status Bar */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+
             {/* Los Angeles Time */}
             {currentTimeLA && (
               <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700">
@@ -220,6 +223,8 @@ function MainLayout() {
                 <div className="text-[10px] text-slate-500">
                   {isSupervisor ? (
                     <span className="text-[#B8922A] font-bold">Administrador</span>
+                  ) : userProfile?.role === 'Distribuidor' ? (
+                    <span className="text-emerald-700 font-bold">Distribuidor</span>
                   ) : (
                     <span className="text-sky-600 font-semibold">
                       Agente: {telemarketingAgent || 'Sin asignar'}
@@ -240,23 +245,23 @@ function MainLayout() {
         <CalendarSync showExisting={currentTab === 'agenda'} showControls={currentTab === 'agenda'} />
 
         {/* Dynamic View Body */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {currentTab === 'trabajo' && (
+        <main className="flex-1 p-2.5 sm:p-4 lg:p-8 max-w-7xl w-full mx-auto">
+          {currentTab === 'trabajo' && canAccessTab('trabajo', userProfile?.role, isAdmin) && (
             <MiTrabajoView
               onOpenLlamadaModal={(p) => setModalLlamadaProspecto(p)}
               onOpenDetailDrawer={(p) => setDrawerProspecto(p)}
             />
           )}
-          {currentTab === 'prospectos' && <ProspectosView />}
-          {currentTab === 'cargar' && isAdmin && <CargarProspectosView />}
-          {currentTab === 'agenda' && (
+          {currentTab === 'prospectos' && canAccessTab('prospectos', userProfile?.role, isAdmin) && <ProspectosView />}
+          {currentTab === 'cargar' && canAccessTab('cargar', userProfile?.role, isAdmin) && <CargarProspectosView />}
+          {currentTab === 'agenda' && canAccessTab('agenda', userProfile?.role, isAdmin) && (
             <AgendaView
               onOpenRegistrarResultado={(c) => setModalResultadoCita(c)}
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
               onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
             />
           )}
-          {currentTab === 'dashboard' && (
+          {currentTab === 'dashboard' && canAccessTab('dashboard', userProfile?.role, isAdmin) && (
             <DashboardView
               onOpenProspecto={(p) => setDrawerProspecto(p)}
               onOpenCita={(c) => setSelectedCitaDetail(c)}
@@ -268,7 +273,7 @@ function MainLayout() {
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
             />
           )}
-          {currentTab === 'individual' && isAdmin && (
+          {currentTab === 'individual' && canAccessTab('individual', userProfile?.role, isAdmin) && (
             <ReporteIndividualView
               onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
               onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
@@ -276,7 +281,7 @@ function MainLayout() {
           )}
           {currentTab === 'reportes' && isAdmin && <ReportesView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
-          {currentTab === 'consulta' && isAdmin && <ConsultaGlobalView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'consulta' && isAdmin && <ProspectosView />}
           {currentTab === 'accesos' && isAdmin && <AccesosView />}
           {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
           {currentTab !== 'trabajo' &&
@@ -357,6 +362,7 @@ function MainLayout() {
           onSaved={() => setEditingProspecto(null)}
         />
       )}
+
     </div>
   );
 }

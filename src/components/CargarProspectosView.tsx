@@ -164,42 +164,40 @@ export const CargarProspectosView: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
-      {/* Subtabs Navigation (Supervisor sees both, Telemarketing only sees individual) */}
-      {isSupervisor && (
-        <div className="flex items-center gap-2 border-b border-slate-200">
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('individual')}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold transition-all border-b-2 cursor-pointer ${
-              activeSubTab === 'individual'
-                ? 'border-[#0D2240] text-[#0D2240] bg-white shadow-xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <UserPlus className="w-4 h-4 text-[#B8922A]" />
-            <span>Carga Individual</span>
-          </button>
+      {/* Subtabs Navigation (Sin restricciones: Carga Individual y Carga Masiva por Excel) */}
+      <div className="flex items-center gap-2 border-b border-slate-200">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('individual')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold transition-all border-b-2 cursor-pointer ${
+            activeSubTab === 'individual'
+              ? 'border-[#0D2240] text-[#0D2240] bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <UserPlus className="w-4 h-4 text-[#B8922A]" />
+          <span>Carga Individual</span>
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('masiva')}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold transition-all border-b-2 cursor-pointer ${
-              activeSubTab === 'masiva'
-                ? 'border-[#0D2240] text-[#0D2240] bg-white shadow-xs'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4 text-[#B8922A]" />
-            <span>Carga Masiva por Excel</span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#B8922A]/15 text-[#9a781f] font-bold">
-              Etapa 2
-            </span>
-          </button>
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('masiva')}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold transition-all border-b-2 cursor-pointer ${
+            activeSubTab === 'masiva'
+              ? 'border-[#0D2240] text-[#0D2240] bg-white shadow-xs'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 text-[#B8922A]" />
+          <span>Carga Masiva por Excel</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#B8922A]/15 text-[#9a781f] font-bold">
+            Etapa 2
+          </span>
+        </button>
+      </div>
 
       {/* Render Active Subtab */}
-      {activeSubTab === 'masiva' && isSupervisor ? (
+      {activeSubTab === 'masiva' ? (
         <CargaMasivaExcelView />
       ) : (
         <div className="space-y-8">

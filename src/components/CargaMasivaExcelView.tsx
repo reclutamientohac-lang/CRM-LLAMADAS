@@ -1025,9 +1025,8 @@ export const CargaMasivaExcelView: React.FC = () => {
         </div>
       )}
 
-      {/* SECTION: Historial de Cargas (Supervisor Only) */}
-      {isSupervisor && (
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200/90 space-y-5">
+      {/* SECTION: Historial de Cargas Masivas */}
+      <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200/90 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-lg font-extrabold text-[#0D2240] flex items-center gap-2">
@@ -1136,7 +1135,6 @@ export const CargaMasivaExcelView: React.FC = () => {
             </table>
           </div>
         </div>
-      )}
 
       {/* Undo Batch Modal with Double Confirmation */}
       {undoLoteId && (

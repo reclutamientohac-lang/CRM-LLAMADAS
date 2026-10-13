@@ -31,6 +31,7 @@ import {
   getEstadoBadgeClass,
   getDaysDifference,
   formatDateDisplay,
+  isSeguimientoUrgente,
   SIN_ASIGNAR,
 } from '../businessRules';
 
@@ -66,7 +67,7 @@ export const MiTrabajoView: React.FC<MiTrabajoViewProps> = ({
     return prospectos.filter((p) => {
       if (p.archivado) return false;
       if (!currentAgent) return true; // Show all if supervisor hasn't picked one
-      return p.telemarketing === currentAgent;
+      return (p.telemarketing || '').trim().toLowerCase() === currentAgent.trim().toLowerCase();
     });
   }, [prospectos, currentAgent]);
 
@@ -389,18 +390,20 @@ export const MiTrabajoView: React.FC<MiTrabajoViewProps> = ({
         </div>
 
         {/* Queue Description Banner */}
-        <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200/70 text-xs text-slate-600 flex items-center justify-between">
-          <span className="font-medium">
-            {activeQueue === 'seguimientos' &&
-              'Prioridad 1: Prospectos con llamada de seguimiento programada para hoy o días anteriores.'}
-            {activeQueue === 'nuevos' &&
-              'Prioridad 2: Prospectos que acaban de llegar y aún no tienen ningún intento de llamada (Hot primero).'}
-            {activeQueue === 'gestion' &&
-              'Prioridad 3: Prospectos donde no contestaron o cayó a buzón de voz y toca reintentar.'}
-            {activeQueue === 'todos' &&
-              'Listado completo de prospectos asignados para gestión.'}
-          </span>
-          <span className="text-[11px] font-bold text-slate-500">
+        <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-200/70 text-xs text-slate-600 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">
+              {activeQueue === 'seguimientos' &&
+                'Prioridad 1: Prospectos con llamada de seguimiento programada para hoy o días anteriores.'}
+              {activeQueue === 'nuevos' &&
+                'Prioridad 2: Prospectos que acaban de llegar y aún no tienen ningún intento de llamada (Hot primero).'}
+              {activeQueue === 'gestion' &&
+                'Prioridad 3: Prospectos donde no contestaron o cayó a buzón de voz y toca reintentar.'}
+              {activeQueue === 'todos' &&
+                'Listado completo de prospectos asignados para gestión.'}
+            </span>
+          </div>
+          <span className="text-[11px] font-bold text-slate-500 shrink-0">
             {currentQueueList.length} disponibles
           </span>
         </div>
@@ -426,6 +429,7 @@ export const MiTrabajoView: React.FC<MiTrabajoViewProps> = ({
           <div className="divide-y divide-slate-100">
             {currentQueueList.map((p) => {
               const daysOld = getDaysDifference(p.fechaRecepcion);
+              const urgency = isSeguimientoUrgente(p);
 
               return (
                 <div
@@ -441,6 +445,19 @@ export const MiTrabajoView: React.FC<MiTrabajoViewProps> = ({
                       >
                         {p.nombre}
                       </h3>
+
+                      {urgency.isUrgente && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 border border-rose-300 animate-pulse shadow-xs">
+                          <Clock className="w-3 h-3 text-rose-600" />
+                          <span>
+                            {urgency.diffMinutes === -9999
+                              ? 'Llamada Vencida'
+                              : urgency.diffMinutes !== null && urgency.diffMinutes <= 0
+                              ? '¡Llamar ahora!'
+                              : `En ${urgency.diffMinutes} min`}
+                          </span>
+                        </span>
+                      )}
 
                       <span
                         className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${getTemperaturaBadgeClass(

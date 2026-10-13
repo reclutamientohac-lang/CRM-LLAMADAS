@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useState, useMemo } from 'react';
 import {
   Calendar,
@@ -22,19 +23,31 @@ import {
   Eye,
   SlidersHorizontal,
   X,
+  FileSpreadsheet,
+  ArrowUpDown,
+  History,
+  DollarSign,
+  Award,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react';
-import { Cita, EstadoCita, Prospecto } from '../types';
+import { Cita, EstadoCita, Prospecto, Venta, Retroalimentacion } from '../types';
 import { useCRM } from '../context/CRMContext';
 import { useAuth } from '../context/AuthContext';
 import {
   formatDateDisplay,
   formatPhoneDisplay,
+  formatCurrency,
   getTodayInLA,
+  getDateInLA,
   getEstadoCitaBadgeClass,
+  getResultadoCitaBadgeClass,
   isCitaVencidaSinResultado,
   getTemperaturaBadgeClass,
   SIN_ASIGNAR,
 } from '../businessRules';
+import { exportAgendaToExcel } from '../excelUtils';
+import { CargarAgendaHistoricaModal } from './CargarAgendaHistoricaModal';
 
 interface AgendaViewProps {
   onOpenRegistrarResultado: (cita: Cita) => void;
@@ -44,15 +57,15 @@ interface AgendaViewProps {
 
 type ViewMode = 'lista' | 'calendario';
 type CalendarSubMode = 'mes' | 'semana';
-type DateFilterType = 'futuras' | 'hoy' | 'semana' | 'mes' | 'todas' | 'personalizado';
+type DateFilterType = 'futuras' | 'hoy' | 'semana' | 'mes' | 'pasadas' | 'todas' | 'personalizado';
 
 export const AgendaView: React.FC<AgendaViewProps> = ({
   onOpenRegistrarResultado,
   onOpenCitaDetail,
   onOpenProspectoDetail,
 }) => {
-  const { citas, prospectos, settings } = useCRM();
-  const { isSupervisor, telemarketingAgent } = useAuth();
+  const { citas, prospectos, settings, ventas, retroalimentaciones } = useCRM();
+  const { isSupervisor, userProfile, isDistribuidor, telemarketingAgent } = useAuth();
 
   const todayLA = getTodayInLA();
 
@@ -61,12 +74,17 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   const [calendarSubMode, setCalendarSubMode] = useState<CalendarSubMode>('mes');
 
   // Filtros
-  const [dateFilter, setDateFilter] = useState<DateFilterType>('futuras'); // Por defecto: de hoy en adelante
+  const [dateFilter, setDateFilter] = useState<DateFilterType>('todas'); // Histórico completo disponible
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<string>('TODOS');
   const [selectedEstado, setSelectedEstado] = useState<string>('TODOS');
+  const [filtroVenta, setFiltroVenta] = useState<string>('TODAS');
+  const [filtroResultado, setFiltroResultado] = useState<string>('TODOS');
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Modal para Cargar Agenda Histórica
+  const [showCargarModal, setShowCargarModal] = useState(false);
 
   // Navegación Calendario
   const [calendarAnchorDate, setCalendarAnchorDate] = useState<Date>(new Date());
@@ -78,14 +96,48 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     return map;
   }, [prospectos]);
 
-  // Lista base según rol (telemarketing solo ve sus citas)
+  // Mapa de ventas vinculadas por idCita
+  const ventasMap = useMemo(() => {
+    const map = new Map<string, Venta>();
+    ventas.forEach((v) => {
+      if (v.idCita && v.estado !== 'Cancelada') {
+        map.set(v.idCita, v);
+      }
+    });
+    return map;
+  }, [ventas]);
+
+  // Mapa de retroalimentaciones por idCita
+  const retrosMap = useMemo(() => {
+    const map = new Map<string, Retroalimentacion>();
+    retroalimentaciones.forEach((r) => {
+      if (r.idCita) {
+        map.set(r.idCita, r);
+      }
+    });
+    return map;
+  }, [retroalimentaciones]);
+
+  // Helper robusto para obtener fecha en America/Los_Angeles
+  const getCitaDate = (c: Cita): string => {
+    const raw = c.fechaCita || (c as any).fecha || c.fechaCreacion || '';
+    return getDateInLA(raw) || (typeof raw === 'string' ? raw.slice(0, 10) : '');
+  };
+
+  // Ordenamiento de citas (por defecto desc para ver fechas recientes en histórico)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Lista base según rol (supervisor y distribuidor ven todas las citas; telemarketing solo ve las suyas)
   const baseCitas = useMemo(() => {
-    if (isSupervisor) {
+    if (isSupervisor || isDistribuidor || userProfile?.role === 'Distribuidor' || userProfile?.role === 'Supervisor') {
       return citas;
     }
-    const myAgent = telemarketingAgent || '';
-    return citas.filter((c) => c.telemarketing.toUpperCase() === myAgent.toUpperCase());
-  }, [citas, isSupervisor, telemarketingAgent]);
+    const myAgent = (telemarketingAgent || '').trim().toUpperCase();
+    return citas.filter((c) => {
+      const cAgent = (c.telemarketing || prospectosMap.get(c.idProspecto)?.telemarketing || '').trim().toUpperCase();
+      return cAgent === myAgent;
+    });
+  }, [citas, isSupervisor, isDistribuidor, userProfile?.role, telemarketingAgent, prospectosMap]);
 
   // Helpers para rango de semanas y meses
   const getWeekDates = (d: Date) => {
@@ -122,21 +174,41 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     return { startStr: format(start), endStr: format(end) };
   };
 
-  // Contadores del encabezado
+  // Contadores del encabezado con desglose histórico completo (incluyendo ventas y bonos)
   const headerCounters = useMemo(() => {
     let pendientesResultado = 0;
     let hoy = 0;
     let proximas = 0;
+    let pasadas = 0;
+    let realizadas = 0;
+    let conVenta = 0;
+    let montoTotalVentas = 0;
+    let bonosAcumulados = 0;
 
     baseCitas.forEach((c) => {
+      const cDate = getCitaDate(c);
       if (isCitaVencidaSinResultado(c, todayLA)) {
         pendientesResultado++;
       }
-      if (c.fechaCita === todayLA) {
+      if (cDate === todayLA) {
         hoy++;
-      }
-      if (c.fechaCita > todayLA) {
+      } else if (cDate > todayLA) {
         proximas++;
+      } else if (cDate && cDate < todayLA) {
+        pasadas++;
+      }
+      if (c.estadoCita === 'Realizada') {
+        realizadas++;
+      }
+
+      const retro = retrosMap.get(c.id);
+      const v = ventasMap.get(c.id);
+      if (retro?.resultado === 'Venta' || (v && v.estado !== 'Cancelada')) {
+        conVenta++;
+      }
+      if (v && v.estado !== 'Cancelada') {
+        if (v.montoAprobado) montoTotalVentas += v.montoAprobado;
+        if (v.bonoGenerado) bonosAcumulados += v.bonoGenerado;
       }
     });
 
@@ -144,40 +216,74 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       pendientesResultado,
       hoy,
       proximas,
+      pasadas,
+      realizadas,
+      conVenta,
+      montoTotalVentas,
+      bonosAcumulados,
       total: baseCitas.length,
     };
-  }, [baseCitas, todayLA]);
+  }, [baseCitas, todayLA, ventasMap, retrosMap]);
 
   // Filtrado de citas
   const filteredCitas = useMemo(() => {
     return baseCitas.filter((c) => {
       // 1. Filtro Telemarketing (si es supervisor)
       if (isSupervisor && selectedAgent !== 'TODOS') {
-        if (c.telemarketing !== selectedAgent) return false;
+        const target = selectedAgent.trim().toUpperCase();
+        const cAgent = (c.telemarketing || prospectosMap.get(c.idProspecto)?.telemarketing || '').trim().toUpperCase();
+        if (cAgent !== target) return false;
       }
 
-      // 2. Filtro Estado
+      // 2. Filtro Estado de Cita
       if (selectedEstado !== 'TODOS') {
         if (c.estadoCita !== selectedEstado) return false;
       }
 
-      // 3. Filtro Fecha
-      if (dateFilter === 'futuras') {
-        if (c.fechaCita < todayLA) return false;
-      } else if (dateFilter === 'hoy') {
-        if (c.fechaCita !== todayLA) return false;
-      } else if (dateFilter === 'semana') {
-        const { startStr, endStr } = getWeekDates(new Date());
-        if (c.fechaCita < startStr || c.fechaCita > endStr) return false;
-      } else if (dateFilter === 'mes') {
-        const { startStr, endStr } = getMonthDates(new Date());
-        if (c.fechaCita < startStr || c.fechaCita > endStr) return false;
-      } else if (dateFilter === 'personalizado') {
-        if (fechaInicio && c.fechaCita < fechaInicio) return false;
-        if (fechaFin && c.fechaCita > fechaFin) return false;
+      // 3. Filtro Venta / Comisión
+      if (filtroVenta === 'CON_VENTA') {
+        const hasVenta = Boolean(ventasMap.get(c.id) || retrosMap.get(c.id)?.resultado === 'Venta');
+        if (!hasVenta) return false;
+      } else if (filtroVenta === 'SIN_VENTA') {
+        const hasVenta = Boolean(ventasMap.get(c.id) || retrosMap.get(c.id)?.resultado === 'Venta');
+        if (hasVenta) return false;
+      } else if (filtroVenta === 'CON_BONO') {
+        const b = ventasMap.get(c.id)?.bonoGenerado || 0;
+        if (b <= 0) return false;
       }
 
-      // 4. Búsqueda por texto (nombre de prospecto, teléfono o ID de cita)
+      // 4. Filtro Resultado de Cita
+      if (filtroResultado !== 'TODOS') {
+        const retro = retrosMap.get(c.id);
+        const actualRes = retro?.resultado || (ventasMap.get(c.id) ? 'Venta' : 'SIN_RESULTADO');
+        if (filtroResultado === 'SIN_RESULTADO') {
+          if (actualRes !== 'SIN_RESULTADO') return false;
+        } else if (actualRes !== filtroResultado) {
+          return false;
+        }
+      }
+
+      // 5. Filtro Fecha
+      const cDate = getCitaDate(c);
+      if (dateFilter === 'futuras') {
+        if (!cDate || cDate < todayLA) return false;
+      } else if (dateFilter === 'pasadas') {
+        if (!cDate || cDate >= todayLA) return false;
+      } else if (dateFilter === 'hoy') {
+        if (cDate !== todayLA) return false;
+      } else if (dateFilter === 'semana') {
+        const { startStr, endStr } = getWeekDates(new Date());
+        if (!cDate || cDate < startStr || cDate > endStr) return false;
+      } else if (dateFilter === 'mes') {
+        const { startStr, endStr } = getMonthDates(new Date());
+        if (!cDate || cDate < startStr || cDate > endStr) return false;
+      } else if (dateFilter === 'personalizado') {
+        if (fechaInicio && cDate < fechaInicio) return false;
+        if (fechaFin && cDate > fechaFin) return false;
+      }
+      // 'todas' no filtra por fecha (entrega el histórico completo)
+
+      // 6. Búsqueda por texto (nombre de prospecto, teléfono, ID de cita, asunto, quién atiende o dirección)
       if (searchTerm.trim()) {
         const term = searchTerm.trim().toLowerCase();
         const lead = prospectosMap.get(c.idProspecto);
@@ -185,8 +291,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         const matchAsunto = (c.asunto || '').toLowerCase().includes(term);
         const matchLeadName = lead ? lead.nombre.toLowerCase().includes(term) : false;
         const matchLeadPhone = lead ? lead.telefono.includes(term) : false;
+        const matchAttends = (c.quienAtiende || '').toLowerCase().includes(term);
+        const matchAddress = (c.direccion || '').toLowerCase().includes(term);
 
-        if (!matchId && !matchAsunto && !matchLeadName && !matchLeadPhone) {
+        if (!matchId && !matchAsunto && !matchLeadName && !matchLeadPhone && !matchAttends && !matchAddress) {
           return false;
         }
       }
@@ -198,23 +306,31 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     isSupervisor,
     selectedAgent,
     selectedEstado,
+    filtroVenta,
+    filtroResultado,
     dateFilter,
     todayLA,
     fechaInicio,
     fechaFin,
     searchTerm,
     prospectosMap,
+    ventasMap,
+    retrosMap,
   ]);
 
-  // Lista ordenada por fecha y hora
+  // Lista ordenada por fecha y hora (respetando sortOrder asc/desc)
   const sortedCitas = useMemo(() => {
     return [...filteredCitas].sort((a, b) => {
-      if (a.fechaCita !== b.fechaCita) {
-        return a.fechaCita.localeCompare(b.fechaCita);
+      const aDate = a.fechaCita || '';
+      const bDate = b.fechaCita || '';
+      if (aDate !== bDate) {
+        return sortOrder === 'asc' ? aDate.localeCompare(bDate) : bDate.localeCompare(aDate);
       }
-      return (a.horaCita || '').localeCompare(b.horaCita || '');
+      return sortOrder === 'asc'
+        ? (a.horaCita || '').localeCompare(b.horaCita || '')
+        : (b.horaCita || '').localeCompare(a.horaCita || '');
     });
-  }, [filteredCitas]);
+  }, [filteredCitas, sortOrder]);
 
   const handleClearFilters = () => {
     setDateFilter('futuras');
@@ -223,6 +339,29 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     setSelectedAgent('TODOS');
     setSelectedEstado('TODOS');
     setSearchTerm('');
+  };
+
+  const handleSelectTodas = () => {
+    setDateFilter('todas');
+    setFechaInicio('');
+    setFechaFin('');
+    setSelectedEstado('TODOS');
+    setSortOrder('desc');
+  };
+
+  const handleSelectPasadas = () => {
+    setDateFilter('pasadas');
+    setFechaInicio('');
+    setFechaFin('');
+    setSortOrder('desc');
+  };
+
+  const handleExportExcel = () => {
+    exportAgendaToExcel({
+      citas: sortedCitas,
+      prospectosMap,
+      filtroDescripcion: `Filtro: ${dateFilter} - Estado: ${selectedEstado} - Agente: ${selectedAgent}`,
+    });
   };
 
   const hasActiveFilters =
@@ -265,6 +404,16 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
 
   return (
     <div className="space-y-6">
+      <PrintReport title="Agenda de citas"
+        filters={`Período: ${dateFilter === 'personalizado' ? `${fechaInicio || 'Inicio'} a ${fechaFin || 'Sin límite'}` : dateFilter} · Telemarketing: ${isSupervisor ? selectedAgent : telemarketingAgent} · Estado: ${selectedEstado} · Venta: ${filtroVenta} · Resultado: ${filtroResultado} · Búsqueda: ${searchTerm || 'Todas'}`}
+        columns={['Fecha / Hora', 'Prospecto / Teléfono', 'Telemarketing', 'Asunto / Dirección', 'Atiende', 'Estado']}
+        rows={sortedCitas.map(c => [<>{formatDateDisplay(getCitaDate(c))}<br />{c.horaCita}</>, <>{prospectosMap.get(c.idProspecto)?.nombre || 'Sin nombre'}<br />{formatPhoneDisplay(prospectosMap.get(c.idProspecto)?.telefono || '')}</>, c.telemarketing, <>{c.asunto}<br />{c.direccion}</>, c.quienAtiende, c.estadoCita])}
+        summary={`Total de citas del período filtrado: ${sortedCitas.length}`}
+      />
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
+        <button type="button" onClick={() => window.print()} className="px-4 py-2 rounded-xl bg-[#0D2240] text-white font-bold">Imprimir / PDF</button>
+        <span className="text-xs text-slate-500">Imprime todas las citas que cumplen los filtros. Selecciona Guardar como PDF en el diálogo.</span>
+      </div>
       {/* Encabezado Principal y Contadores */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -286,8 +435,30 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
           </div>
 
-          {/* Selector de Vista: Lista vs Calendario */}
-          <div className="flex items-center gap-2">
+          {/* Selector de Vista: Lista vs Calendario + Acciones */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Botón de ordenamiento rápido */}
+            <button
+              type="button"
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer border border-slate-200"
+              title="Cambiar orden cronológico"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-500" />
+              <span>{sortOrder === 'desc' ? 'Más recientes' : 'Más antiguos'}</span>
+            </button>
+
+            {/* Exportar Excel */}
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer"
+              title="Exportar reporte de agenda a Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Exportar Excel</span>
+            </button>
+
             <div className="bg-slate-100 p-1 rounded-xl flex items-center border border-slate-200">
               <button
                 type="button"
@@ -318,18 +489,19 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           </div>
         </div>
 
-        {/* 4 Contadores del Encabezado */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-100">
-          {/* Pendientes de Resultado (Alerta Roja) */}
+        {/* 5 Contadores del Encabezado con Conteo Histórico Completo */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-6 pt-5 border-t border-slate-100">
+          {/* 1. Pendientes de Resultado */}
           <div
             onClick={() => {
               setSelectedEstado('Agendada');
               setDateFilter('todas');
+              setSortOrder('desc');
             }}
             className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
               headerCounters.pendientesResultado > 0
                 ? 'bg-rose-50 border-rose-200 hover:bg-rose-100/70'
-                : 'bg-slate-50 border-slate-200'
+                : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
             }`}
           >
             <div className="flex items-center justify-between">
@@ -352,9 +524,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
           </div>
 
-          {/* Citas de Hoy */}
+          {/* 2. Citas de Hoy */}
           <div
-            onClick={() => setDateFilter('hoy')}
+            onClick={() => {
+              setDateFilter('hoy');
+              setSelectedEstado('TODOS');
+            }}
             className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
               dateFilter === 'hoy'
                 ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-500/20'
@@ -371,9 +546,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
           </div>
 
-          {/* Próximas */}
+          {/* 3. Próximas */}
           <div
-            onClick={() => setDateFilter('futuras')}
+            onClick={() => {
+              setDateFilter('futuras');
+              setSelectedEstado('TODOS');
+            }}
             className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
               dateFilter === 'futuras'
                 ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/20'
@@ -390,19 +568,48 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
           </div>
 
-          {/* Total */}
+          {/* 4. Conteo Histórico (Pasadas) */}
           <div
-            onClick={handleClearFilters}
-            className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100/70 transition-all cursor-pointer"
+            onClick={handleSelectPasadas}
+            className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+              dateFilter === 'pasadas'
+                ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-500/20'
+                : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+            }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-700">Total</span>
-              <Calendar className="w-4 h-4 text-slate-500" />
+              <span className="text-xs font-bold text-purple-900">Histórico (Pasadas)</span>
+              <History className="w-4 h-4 text-purple-600" />
             </div>
             <div className="mt-1 flex items-baseline gap-2">
-              <span className="text-2xl font-black text-[#0D2240]">{sortedCitas.length}</span>
+              <span className="text-2xl font-black text-purple-950">{headerCounters.pasadas}</span>
               <span className="text-[10px] text-slate-500 font-medium">
-                de {headerCounters.total}
+                ({headerCounters.realizadas} realizadas)
+              </span>
+            </div>
+          </div>
+
+          {/* 5. Total Completo */}
+          <div
+            onClick={handleSelectTodas}
+            className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
+              dateFilter === 'todas' && selectedEstado === 'TODOS'
+                ? 'bg-[#0D2240] text-white border-[#0D2240] shadow-sm'
+                : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className={`text-xs font-bold ${dateFilter === 'todas' && selectedEstado === 'TODOS' ? 'text-white' : 'text-slate-700'}`}>
+                Total Cartera
+              </span>
+              <Calendar className={`w-4 h-4 ${dateFilter === 'todas' && selectedEstado === 'TODOS' ? 'text-[#B8922A]' : 'text-slate-500'}`} />
+            </div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className={`text-2xl font-black ${dateFilter === 'todas' && selectedEstado === 'TODOS' ? 'text-white' : 'text-[#0D2240]'}`}>
+                {headerCounters.total}
+              </span>
+              <span className={`text-[10px] font-medium ${dateFilter === 'todas' && selectedEstado === 'TODOS' ? 'text-slate-300' : 'text-slate-500'}`}>
+                {sortedCitas.length} visibles
               </span>
             </div>
           </div>
@@ -417,10 +624,44 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             <span>Filtros de Búsqueda</span>
           </div>
 
+          {/* Atajos Rápidos */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+              <History className="w-3.5 h-3.5 text-[#B8922A]" />
+              <span>Rápido:</span>
+            </span>
+            {[
+              { id: 'futuras', label: 'Próximas' },
+              { id: 'hoy', label: 'Hoy' },
+              { id: 'semana', label: 'Esta semana' },
+              { id: 'mes', label: 'Este mes' },
+              { id: 'pasadas', label: 'Histórico (Pasadas)' },
+              { id: 'todas', label: 'Todo el Histórico' },
+            ].map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setDateFilter(p.id as DateFilterType);
+                  if (p.id === 'pasadas' || p.id === 'todas') {
+                    setSortOrder('desc');
+                  }
+                }}
+                className={`px-2.5 py-1 rounded-lg font-bold text-xs whitespace-nowrap transition-all cursor-pointer ${
+                  dateFilter === p.id
+                    ? 'bg-[#0D2240] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
           {hasActiveFilters && (
             <button
               onClick={handleClearFilters}
-              className="text-xs text-[#0D2240] hover:text-rose-600 font-bold flex items-center gap-1 transition-colors"
+              className="text-xs text-[#0D2240] hover:text-rose-600 font-bold flex items-center gap-1 transition-colors ml-auto cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Limpiar filtros</span>
@@ -436,14 +677,21 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </label>
             <select
               value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as DateFilterType)}
+              onChange={(e) => {
+                const val = e.target.value as DateFilterType;
+                setDateFilter(val);
+                if (val === 'pasadas' || val === 'todas') {
+                  setSortOrder('desc');
+                }
+              }}
               className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0D2240]"
             >
-              <option value="futuras">De hoy en adelante (Por defecto)</option>
+              <option value="futuras">Próximas: De hoy en adelante</option>
               <option value="hoy">Solo citas de hoy</option>
               <option value="semana">Esta semana</option>
               <option value="mes">Este mes</option>
-              <option value="todas">Todas las fechas (Histórico)</option>
+              <option value="pasadas">Histórico: Solo citas pasadas</option>
+              <option value="todas">Histórico: Todas las fechas (Completo)</option>
               <option value="personalizado">Personalizado (desde / hasta)</option>
             </select>
           </div>
@@ -1076,3 +1324,42 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     </div>
   );
 };
+
+interface Props {
+  title: string;
+  filters: string;
+  columns: string[];
+  rows: React.ReactNode[][];
+  summary?: string;
+}
+
+/** A separate print layout avoids clipped scroll containers and editable fields. */
+export function PrintReport({ title, filters, columns, rows, summary }: Props) {
+  return createPortal(<section className="crm-print-report">
+    <style>{`
+      .crm-print-report { display: none; }
+      @media print {
+        @page { size: landscape; margin: 12mm; }
+        body:has(.crm-print-report) > :not(.crm-print-report) { display: none !important; }
+        .crm-print-report { display: block !important; color: #0D2240; font: 10pt Arial, sans-serif; }
+        .crm-print-report h1 { background: #0D2240; color: white; border-bottom: 5px solid #B8922A; padding: 14px; font-size: 20pt; margin: 0 0 12px; }
+        .crm-print-report p { margin: 8px 0; }
+        .crm-print-report table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; }
+        .crm-print-report thead { display: table-header-group; }
+        .crm-print-report th { background: #0D2240; color: white; text-align: left; }
+        .crm-print-report th, .crm-print-report td { padding: 7px; border: 1px solid #cbd5e1; overflow-wrap: anywhere; vertical-align: top; }
+        .crm-print-report tbody tr:nth-child(even) { background: #eef3fa; }
+        .crm-print-report tr { break-inside: avoid; }
+        .crm-print-report .report-summary { background: #fff4d5; border-left: 4px solid #B8922A; padding: 10px; break-inside: avoid; font-weight: bold; }
+      }
+    `}</style>
+    <h1>CRM LLAMADAS · {title}</h1>
+    <p>{filters}</p>
+    <p>Emitido: {new Date().toLocaleString('es', { timeZone: 'America/Los_Angeles' })} (Los Ángeles) · {rows.length} registros</p>
+    <table><thead><tr>{columns.map(c => <th key={c}>{c}</th>)}</tr></thead>
+      <tbody>{rows.length ? rows.map((row, i) => <tr key={i}>{row.map((cell, j) => <td key={j}>{cell ?? '—'}</td>)}</tr>) : <tr><td colSpan={columns.length}>Sin registros con los filtros seleccionados.</td></tr>}</tbody>
+    </table>
+    {summary && <p className="report-summary">{summary}</p>}
+    <p>Documento interno · Contiene información de prospectos.</p>
+  </section>, document.body);
+}

@@ -4,7 +4,18 @@
  */
 
 import * as XLSX from 'xlsx';
-import { Prospecto, ExcelRowItem, ExcelRowStatus } from './types';
+import {
+  Prospecto,
+  Cita,
+  ExcelRowItem,
+  ExcelRowStatus,
+  AgendaHistoricaImportItem,
+  Venta,
+  Retroalimentacion,
+  ResultadoCita,
+  EstadoCita,
+  EstadoVenta,
+} from './types';
 import { normalizePhone, validateAndNormalizePhone, SIN_ASIGNAR } from './businessRules';
 
 // Columnas canónicas esperadas en la plantilla
@@ -638,12 +649,14 @@ export function exportReporteIndividualToExcel({
   hasta,
   kpis,
   ventas,
+  evolucionDiaria = [],
 }: {
   telemarketing: string;
   desde: string;
   hasta: string;
   kpis: any;
   ventas: any[];
+  evolucionDiaria?: any[];
 }) {
   try {
     const wb = XLSX.utils.book_new();
@@ -654,7 +667,8 @@ export function exportReporteIndividualToExcel({
       { Métrica: 'Período Desde', Valor: desde },
       { Métrica: 'Período Hasta', Valor: hasta },
       { Métrica: '---', Valor: '---' },
-      { Métrica: 'Prospectos Asignados', Valor: kpis.prospectosAsignados },
+      { Métrica: 'Prospectos Asignados (Cartera Total)', Valor: kpis.prospectosAsignados },
+      { Métrica: 'Prospectos Ingresados en Período', Valor: kpis.prospectosAsignadosPeriodo ?? '-' },
       { Métrica: 'Contactos Realizados', Valor: kpis.contactosRealizados },
       { Métrica: 'Contactos Efectivos', Valor: kpis.contactosEfectivos },
       { Métrica: 'Citas Agendadas', Valor: kpis.citasAgendadas },
@@ -672,7 +686,27 @@ export function exportReporteIndividualToExcel({
     const wsResumen = XLSX.utils.json_to_sheet(resumenData);
     XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen KPIs');
 
-    // Hoja 2: Ventas del período
+    // Hoja 2: Gestión por Día (Resultados diarios)
+    if (evolucionDiaria && evolucionDiaria.length > 0) {
+      const gestionDiariaData = evolucionDiaria.map((d: any) => ({
+        'Fecha': d.fecha,
+        'Llamadas Realizadas': d.llamadas ?? 0,
+        'Contactos Efectivos': d.efectivos ?? 0,
+        'Citas Agendadas': d.citas ?? 0,
+        '% Efectividad': `${d.efectividadPct ?? 0}%`,
+        '% Cita': `${d.conversionCitaPct ?? 0}%`,
+        'Cita': d.resultadosDetalle?.['Cita'] ?? 0,
+        'Llamar luego': d.resultadosDetalle?.['Llamar luego'] ?? 0,
+        'No contesta': d.resultadosDetalle?.['No contesta'] ?? 0,
+        'Buzón': d.resultadosDetalle?.['Buzón'] ?? 0,
+        'No interesado': d.resultadosDetalle?.['No interesado'] ?? 0,
+        'Desconectado/Incorrecto': d.resultadosDetalle?.['Número desconectado/incorrecto'] ?? 0,
+      }));
+      const wsGestion = XLSX.utils.json_to_sheet(gestionDiariaData);
+      XLSX.utils.book_append_sheet(wb, wsGestion, 'Gestión por Día');
+    }
+
+    // Hoja 3: Ventas del período
     const ventasData = ventas.map((v) => ({
       'Fecha Cita': v.fechaCita,
       'Hora Cita': v.horaCita || '-',
@@ -698,4 +732,458 @@ export function exportReporteIndividualToExcel({
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Exporta el reporte de agenda de citas con filtros y datos completos a Excel (incluyendo ventas y bonos históricos)
+ */
+export function exportAgendaToExcel(params: {
+  citas: Cita[];
+  prospectosMap: Map<string, Prospecto>;
+  ventasMap?: Map<string, Venta>;
+  retrosMap?: Map<string, Retroalimentacion>;
+  filtroDescripcion?: string;
+}) {
+  const { citas, prospectosMap, ventasMap, retrosMap, filtroDescripcion } = params;
+  try {
+    const wb = XLSX.utils.book_new();
+
+    const citasData = citas.map((c) => {
+      const p = prospectosMap.get(c.idProspecto);
+      const retro = retrosMap?.get(c.id);
+      const venta = ventasMap?.get(c.id);
+
+      return {
+        'ID Cita': c.id,
+        'Fecha Cita': c.fechaCita,
+        'Hora Cita': c.horaCita || '-',
+        'Estado Cita': c.estadoCita,
+        'Resultado Cita': retro?.resultado || (venta ? 'Venta' : '-'),
+        'Prospecto': p?.nombre || 'Desconocido',
+        'Teléfono': p?.telefono || '-',
+        'Telemarketing': c.telemarketing || p?.telemarketing || 'SIN ASIGNAR',
+        'Asunto': c.asunto || '-',
+        'Dirección': c.direccion || '-',
+        'Quién Atiende': c.quienAtiende || '-',
+        'Invitado': c.invitado || '-',
+        'Venta Monto ($)': venta?.montoAprobado !== null && venta?.montoAprobado !== undefined ? venta.montoAprobado : '-',
+        'Estado Venta': venta?.estado || '-',
+        '% Bono': venta?.porcentajeBono !== null && venta?.porcentajeBono !== undefined ? `${(venta.porcentajeBono * 100).toFixed(1)}%` : '-',
+        'Bono Generado ($)': venta?.bonoGenerado !== null && venta?.bonoGenerado !== undefined ? venta.bonoGenerado : '-',
+        'Bono Pagable ($)': venta?.bonoPagable !== null && venta?.bonoPagable !== undefined ? venta.bonoPagable : '-',
+        'Estado Comisión': venta?.estadoPagoHistorico || (venta ? 'Pendiente' : '-'),
+        'Descripción / Notas': c.descripcion || retro?.observacion || venta?.observacion || '-',
+        'Link Maps': c.linkGoogleMaps || '-',
+        'Fecha Creación': c.fechaCreacion || '-',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(
+      citasData.length > 0 ? citasData : [{ 'Aviso': 'No hay citas en este reporte' }]
+    );
+    XLSX.utils.book_append_sheet(wb, ws, 'Agenda de Citas');
+
+    // Hoja 2: Ventas y Bonos de la Agenda
+    const ventasRows: any[] = [];
+    citas.forEach((c) => {
+      const venta = ventasMap?.get(c.id);
+      if (venta && venta.estado !== 'Cancelada') {
+        const p = prospectosMap.get(c.idProspecto);
+        const retro = retrosMap?.get(c.id);
+        ventasRows.push({
+          'ID Cita': c.id,
+          'Fecha Cita': c.fechaCita,
+          'Hora Cita': c.horaCita || '-',
+          'Prospecto': p?.nombre || 'Desconocido',
+          'Teléfono': p?.telefono || '-',
+          'Telemarketing': c.telemarketing || p?.telemarketing || 'SIN ASIGNAR',
+          'Quién Atiende': c.quienAtiende || '-',
+          'Monto Aprobado ($)': venta.montoAprobado !== null ? venta.montoAprobado : 0,
+          '% Bono': venta.porcentajeBono !== null ? `${(venta.porcentajeBono * 100).toFixed(1)}%` : '-',
+          'Bono Generado ($)': venta.bonoGenerado !== null ? venta.bonoGenerado : 0,
+          'Bono Pagable ($)': venta.bonoPagable !== null ? venta.bonoPagable : 0,
+          'Estado Comisión': venta.estadoPagoHistorico || 'Pendiente',
+          'Fecha Pago Comisión': venta.fechaPagoHistorico || '-',
+          'Observación': venta.observacion || retro?.observacion || '',
+        });
+      }
+    });
+
+    const wsVentas = XLSX.utils.json_to_sheet(
+      ventasRows.length > 0 ? ventasRows : [{ 'Aviso': 'No hay ventas vinculadas en estas citas' }]
+    );
+    XLSX.utils.book_append_sheet(wb, wsVentas, 'Histórico Ventas y Bonos');
+
+    // Hoja 3: Resumen por Estado y Resultados
+    const estadoCounts: Record<string, number> = {};
+    const resultadoCounts: Record<string, number> = {};
+    let totalMonto = 0;
+    let totalBonos = 0;
+
+    citas.forEach((c) => {
+      estadoCounts[c.estadoCita] = (estadoCounts[c.estadoCita] || 0) + 1;
+      const retro = retrosMap?.get(c.id);
+      const res = retro?.resultado || (ventasMap?.get(c.id) ? 'Venta' : 'Sin resultado');
+      resultadoCounts[res] = (resultadoCounts[res] || 0) + 1;
+
+      const v = ventasMap?.get(c.id);
+      if (v && v.estado !== 'Cancelada') {
+        if (v.montoAprobado) totalMonto += v.montoAprobado;
+        if (v.bonoGenerado) totalBonos += v.bonoGenerado;
+      }
+    });
+
+    const resumenData = [
+      { Métrica: 'Total Citas en Reporte', Valor: citas.length },
+      { Métrica: 'Citas con Venta Registrada', Valor: ventasRows.length },
+      { Métrica: 'Monto Total Vendido ($)', Valor: totalMonto },
+      { Métrica: 'Bonos Generados ($)', Valor: totalBonos },
+      { Métrica: 'Filtro Aplicado', Valor: filtroDescripcion || 'Sin filtro' },
+      { Métrica: '---', Valor: '---' },
+      ...Object.entries(estadoCounts).map(([k, v]) => ({ Métrica: `Estado: ${k}`, Valor: v })),
+      { Métrica: '---', Valor: '---' },
+      ...Object.entries(resultadoCounts).map(([k, v]) => ({ Métrica: `Resultado: ${k}`, Valor: v })),
+    ];
+    const wsResumen = XLSX.utils.json_to_sheet(resumenData);
+    XLSX.utils.book_append_sheet(wb, wsResumen, 'Resumen Estadístico');
+
+    const safeName = `Reporte_Agenda_${new Date().toISOString().slice(0, 10)}`;
+    XLSX.writeFile(wb, `${safeName}.xlsx`);
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error exportando agenda a Excel:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Descarga plantilla oficial en Excel para Carga Masiva de Agenda Histórica con Ventas y Bonos
+ */
+export function downloadPlantillaAgendaHistorica() {
+  const wb = XLSX.utils.book_new();
+
+  const columnasGuia = [
+    {
+      'Fecha Cita (DD/MM/AAAA)': '15/09/2026',
+      'Hora Cita': '10:30 AM',
+      'Nombre Prospecto': 'Elena Morales Rivas',
+      'Teléfono': '2135550101',
+      'Telemarketing': 'GERAL',
+      'Quién Atiende': 'Carlos Valladares',
+      'Asunto': 'Demostración Sistema de Purificación',
+      'Dirección': '1240 S Soto St, Los Angeles, CA 90023',
+      'Invitado / Cónyuge': 'Esposo Mario',
+      'Estado Cita': 'Realizada',
+      'Resultado': 'Venta',
+      'Monto Venta Aprobado ($)': 2800,
+      '% Comisión Bono': '1.5%',
+      'Bono Generado ($)': 42,
+      'Estado Comisión': 'Pagada',
+      'Fecha Pago Comisión': '20/09/2026',
+      'Observaciones': 'Demostración presencial cerrada con paquete completo',
+    },
+    {
+      'Fecha Cita (DD/MM/AAAA)': '18/09/2026',
+      'Hora Cita': '02:00 PM',
+      'Nombre Prospecto': 'Roberto Gómez',
+      'Teléfono': '7145550105',
+      'Telemarketing': 'IRENE',
+      'Quién Atiende': 'Ana Karina Pérez',
+      'Asunto': 'Presentación Nutricional',
+      'Dirección': '1520 W 17th St, Santa Ana, CA 92706',
+      'Invitado / Cónyuge': 'Hija Diana',
+      'Estado Cita': 'Realizada',
+      'Resultado': 'Recibió sin compra',
+      'Monto Venta Aprobado ($)': '',
+      '% Comisión Bono': '',
+      'Bono Generado ($)': '',
+      'Estado Comisión': '',
+      'Fecha Pago Comisión': '',
+      'Observaciones': 'Muy atentos, piden volver a contactar el próximo mes',
+    },
+    {
+      'Fecha Cita (DD/MM/AAAA)': '22/09/2026',
+      'Hora Cita': '11:00 AM',
+      'Nombre Prospecto': 'Rosa Angélica Beltrán',
+      'Teléfono': '8185550103',
+      'Telemarketing': 'MAIRUT',
+      'Quién Atiende': 'Diana Méndez',
+      'Asunto': 'Demostración de Cocina',
+      'Dirección': '840 San Fernando Rd, San Fernando, CA 91340',
+      'Invitado / Cónyuge': '',
+      'Estado Cita': 'Realizada',
+      'Resultado': 'No se visitó',
+      'Monto Venta Aprobado ($)': '',
+      '% Comisión Bono': '',
+      'Bono Generado ($)': '',
+      'Estado Comisión': '',
+      'Fecha Pago Comisión': '',
+      'Observaciones': 'Cliente no estuvo en casa en el horario acordado',
+    },
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(columnasGuia);
+  XLSX.utils.book_append_sheet(wb, ws, 'Agenda Histórica');
+
+  // Hoja de instrucciones
+  const instrucciones = [
+    { Instrucción: '1. Fecha Cita', Detalle: 'Usa formato DD/MM/AAAA o AAAA-MM-DD (ej: 15/09/2026)' },
+    { Instrucción: '2. Teléfono', Detalle: 'Número a 10 u 11 dígitos. Se usará para vincular la cita al prospecto correspondiente.' },
+    { Instrucción: '3. Prospectos automáticos', Detalle: 'Si el prospecto ya existe en el CRM, la cita se vincula a su historial. Si no existe, se creará automáticamente.' },
+    { Instrucción: '4. Detección de duplicados', Detalle: 'El sistema revisa prospecto + fecha + hora para evitar duplicar citas ya cargadas.' },
+    { Instrucción: '5. Ventas y Bonos', Detalle: 'Si el resultado es "Venta" o indicas un Monto Venta Aprobado, se crea el registro de venta y bono en la sección de Ventas / Bonos.' },
+    { Instrucción: '6. Resultados válidos', Detalle: 'Venta, Recibió sin compra, No se visitó, No recibió, Reprogramar, Venta futura, Cancelación' },
+    { Instrucción: '7. Estado Comisión', Detalle: 'Pagada o Pendiente' },
+  ];
+  const wsInst = XLSX.utils.json_to_sheet(instrucciones);
+  XLSX.utils.book_append_sheet(wb, wsInst, 'Instrucciones');
+
+  XLSX.writeFile(wb, 'Plantilla_Agenda_Historica_Ventas_Bonos.xlsx');
+}
+
+/**
+ * Parsea y valida un archivo Excel para la carga masiva de agenda histórica con ventas y bonos
+ */
+export async function parseAgendaHistoricaExcel(
+  file: File,
+  existingProspectos: Prospecto[],
+  existingCitas: Cita[]
+): Promise<{
+  rows: AgendaHistoricaImportItem[];
+  resumen: {
+    totalLeidas: number;
+    validas: number;
+    duplicadas: number;
+    conVenta: number;
+    conBono: number;
+    vinculadasProspectoExistente: number;
+    nuevosProspectos: number;
+    montoTotalVentas: number;
+    montoTotalBonos: number;
+  };
+  warnings: string[];
+}> {
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: 'array' });
+  const firstSheetName = wb.SheetNames[0];
+  const ws = wb.Sheets[firstSheetName];
+  const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+  const warnings: string[] = [];
+  const rows: AgendaHistoricaImportItem[] = [];
+
+  // Mapeos rápidos de prospectos existentes por teléfono y por nombre
+  const phoneToLead = new Map<string, Prospecto>();
+  const nameToLead = new Map<string, Prospecto>();
+  existingProspectos.forEach((p) => {
+    const ph = normalizePhone(p.telefono);
+    if (ph) phoneToLead.set(ph, p);
+    const nm = (p.nombre || '').trim().toLowerCase();
+    if (nm) nameToLead.set(nm, p);
+  });
+
+  // Conjunto de citas existentes para detección de duplicados
+  const existingCitaKeys = new Set<string>();
+  existingCitas.forEach((c) => {
+    const d = c.fechaCita;
+    const h = (c.horaCita || '').trim().toLowerCase();
+    existingCitaKeys.add(`${c.idProspecto}_${d}_${h}`);
+    existingCitaKeys.add(c.id);
+  });
+
+  let totalMonto = 0;
+  let totalBono = 0;
+  let validasCount = 0;
+  let dupesCount = 0;
+  let conVentaCount = 0;
+  let conBonoCount = 0;
+  let vinculadasCount = 0;
+  let nuevosProspectosCount = 0;
+
+  for (let idx = 0; idx < rawJson.length; idx++) {
+    const raw = rawJson[idx];
+
+    // Buscar campos según encabezados normalizados
+    const normalizedRow: Record<string, any> = {};
+    Object.keys(raw).forEach((k) => {
+      normalizedRow[normalizeHeaderKey(k)] = raw[k];
+    });
+
+    const getVal = (...keys: string[]): any => {
+      for (const k of keys) {
+        const normK = normalizeHeaderKey(k);
+        if (normalizedRow[normK] !== undefined && String(normalizedRow[normK]).trim() !== '') {
+          return normalizedRow[normK];
+        }
+      }
+      return '';
+    };
+
+    // 1. Fecha
+    const fechaRaw = getVal('fechacita', 'fecha', 'dia', 'date');
+    const { dateStr: fechaCita } = parseExcelDate(fechaRaw);
+    const finalFecha = fechaCita || new Date().toISOString().slice(0, 10);
+
+    // 2. Hora
+    const horaCita = String(getVal('horacita', 'hora', 'time') || '10:00 AM').trim();
+
+    // 3. Prospecto / Nombre
+    const nombreProspecto = String(getVal('nombreprospecto', 'prospecto', 'nombre', 'cliente', 'lead') || '').trim();
+
+    // 4. Teléfono
+    const rawPhone = String(getVal('telefono', 'tel', 'celular', 'movil', 'phone') || '').trim();
+    const phoneNorm = normalizePhone(rawPhone);
+
+    // 5. Telemarketing
+    const telemarketing = String(getVal('telemarketing', 'agente', 'tm') || 'SIN ASIGNAR').trim();
+
+    // 6. Quién Atiende
+    const quienAtiende = String(getVal('quienatiende', 'atiende', 'vendedor', 'distribuidor') || '').trim();
+
+    // 7. Asunto
+    const asunto = String(getVal('asunto', 'motivo', 'demo', 'descripcion') || `Demostración - ${nombreProspecto || 'Cliente'}`).trim();
+
+    // 8. Dirección
+    const direccion = String(getVal('direccion', 'domicilio', 'ubicacion', 'address') || '').trim();
+
+    // 9. Invitado
+    const invitado = String(getVal('invitado', 'conyuge', 'acompanante') || '').trim();
+
+    // 10. Estado Cita
+    const rawEstado = String(getVal('estadocita', 'estado', 'status') || '').trim();
+    let estadoCita: EstadoCita = 'Realizada';
+    if (/agendad/i.test(rawEstado)) estadoCita = 'Agendada';
+    else if (/cancelad/i.test(rawEstado)) estadoCita = 'Cancelada';
+    else if (/reprogramad/i.test(rawEstado)) estadoCita = 'Reprogramada';
+
+    // 11. Resultado
+    const rawResultado = String(getVal('resultado', 'resultadocita', 'retroalimentacion') || '').trim();
+    let resultado: ResultadoCita | undefined = undefined;
+    if (/venta/i.test(rawResultado) && !/futura/i.test(rawResultado)) resultado = 'Venta';
+    else if (/no se visit/i.test(rawResultado)) resultado = 'No se visitó';
+    else if (/no recibi/i.test(rawResultado)) resultado = 'No recibió';
+    else if (/sin compra/i.test(rawResultado) || /recibi/i.test(rawResultado)) resultado = 'Recibió sin compra';
+    else if (/reprogramar/i.test(rawResultado)) resultado = 'Reprogramar';
+    else if (/venta futura/i.test(rawResultado)) resultado = 'Venta futura';
+    else if (/cancelac/i.test(rawResultado)) resultado = 'Cancelación';
+
+    // 12. Monto Venta
+    const rawMonto = getVal('montoventaaprobado', 'montoventa', 'montoaprobado', 'monto', 'venta');
+    let montoAprobado: number | null = null;
+    if (rawMonto !== '') {
+      const cleanMonto = typeof rawMonto === 'number' ? rawMonto : Number(String(rawMonto).replace(/[^0-9.-]+/g, ''));
+      if (!isNaN(cleanMonto) && cleanMonto > 0) {
+        montoAprobado = cleanMonto;
+      }
+    }
+    if (montoAprobado !== null && !resultado) {
+      resultado = 'Venta';
+    }
+
+    // 13. Porcentaje Bono
+    const rawPct = getVal('comisionbono', 'porcentajebono', 'bono%', 'comision', '%bono');
+    let porcentajeBono: number | null = null;
+    if (rawPct !== '') {
+      let cleanPct = typeof rawPct === 'number' ? rawPct : Number(String(rawPct).replace(/[^0-9.-]+/g, ''));
+      if (!isNaN(cleanPct)) {
+        if (cleanPct > 1) cleanPct = cleanPct / 100; // si vino 1.5 -> 0.015
+        porcentajeBono = cleanPct;
+      }
+    } else if (montoAprobado) {
+      porcentajeBono = 0.015; // default 1.5%
+    }
+
+    // 14. Bono Generado
+    const rawBono = getVal('bonogenerado', 'bono', 'bonopagable');
+    let bonoGenerado: number | null = null;
+    if (rawBono !== '') {
+      const cleanBono = typeof rawBono === 'number' ? rawBono : Number(String(rawBono).replace(/[^0-9.-]+/g, ''));
+      if (!isNaN(cleanBono)) bonoGenerado = cleanBono;
+    } else if (montoAprobado && porcentajeBono) {
+      bonoGenerado = Number((montoAprobado * porcentajeBono).toFixed(2));
+    }
+
+    // 15. Estado Comisión / Pago
+    const rawPago = String(getVal('estadocomision', 'estadopago', 'pago', 'comisionpagada') || '').trim();
+    const estadoPago: 'Pagada' | 'Pendiente' = /pagad/i.test(rawPago) ? 'Pagada' : 'Pendiente';
+    const fechaPago = String(getVal('fechapagocomision', 'fechapago') || '').trim() || null;
+    const bonoPagable = estadoPago === 'Pagada' ? 0 : (bonoGenerado || 0);
+
+    // 16. Observaciones
+    const observaciones = String(getVal('observaciones', 'observacion', 'notas', 'nota') || '').trim();
+
+    // Determinar vínculo con prospecto
+    const matchedLead =
+      (phoneNorm ? phoneToLead.get(phoneNorm) : null) ||
+      (nombreProspecto ? nameToLead.get(nombreProspecto.toLowerCase()) : null);
+
+    const prospectoExistenteId = matchedLead?.id;
+    const esNuevoProspecto = !matchedLead;
+
+    if (matchedLead) vinculadasCount++;
+    else nuevosProspectosCount++;
+
+    // Detección de duplicado
+    const horaNorm = horaCita.toLowerCase();
+    const checkKey = `${prospectoExistenteId || 'nuevo_' + (phoneNorm || idx)}_${finalFecha}_${horaNorm}`;
+    const esDuplicada = prospectoExistenteId ? existingCitaKeys.has(`${prospectoExistenteId}_${finalFecha}_${horaNorm}`) : false;
+
+    if (esDuplicada) {
+      dupesCount++;
+    } else {
+      validasCount++;
+    }
+
+    if (resultado === 'Venta' || montoAprobado) {
+      conVentaCount++;
+      if (montoAprobado) totalMonto += montoAprobado;
+    }
+    if (bonoGenerado) {
+      conBonoCount++;
+      totalBono += bonoGenerado;
+    }
+
+    rows.push({
+      fechaCita: finalFecha,
+      horaCita,
+      nombreProspecto: nombreProspecto || (matchedLead?.nombre || `Prospecto ${phoneNorm || idx + 1}`),
+      telefono: phoneNorm || rawPhone || matchedLead?.telefono || '',
+      telemarketing: telemarketing || matchedLead?.telemarketing || 'SIN ASIGNAR',
+      quienAtiende,
+      asunto,
+      direccion: direccion || matchedLead?.ciudadZona || '',
+      invitado,
+      estadoCita,
+      resultado,
+      montoAprobado,
+      porcentajeBono,
+      bonoGenerado,
+      bonoPagable,
+      estadoVenta: montoAprobado ? 'Aprobada' : 'Pendiente',
+      estadoPago,
+      fechaPago,
+      observaciones,
+      prospectoExistenteId,
+      esDuplicada,
+      motivoDuplicada: esDuplicada ? 'Ya existe una cita agendada para este prospecto en la misma fecha y hora.' : undefined,
+      esNuevoProspecto,
+    });
+  }
+
+  return {
+    rows,
+    resumen: {
+      totalLeidas: rawJson.length,
+      validas: validasCount,
+      duplicadas: dupesCount,
+      conVenta: conVentaCount,
+      conBono: conBonoCount,
+      vinculadasProspectoExistente: vinculadasCount,
+      nuevosProspectos: nuevosProspectosCount,
+      montoTotalVentas: totalMonto,
+      montoTotalBonos: totalBono,
+    },
+    warnings,
+  };
+}
+
 

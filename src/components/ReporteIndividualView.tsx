@@ -19,6 +19,10 @@ import {
   RefreshCw,
   Sparkles,
   AlertCircle,
+  ArrowUpDown,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -47,6 +51,7 @@ import {
   getEstadoVentaBadgeClass,
   getDateRangePreset,
   formatDateTimeLA,
+  getTodayInLA,
   calculateReporteIndividual,
 } from '../businessRules';
 import { exportReporteIndividualToExcel } from '../excelUtils';
@@ -63,9 +68,9 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
   const { prospectos, gestiones, citas, ventas, settings } = useCRM();
   const { userProfile, isSupervisor, isAdmin, telemarketingAgent } = useAuth();
 
-  // Permisos: supervisor y admin pueden elegir cualquier telemarketing.
+  // Permisos: supervisor, admin y distribuidor pueden elegir cualquier telemarketing.
   // La telemarketing solo puede ver su propio agente vinculado.
-  const isAgentOrRestricted = !isSupervisor && !isAdmin;
+  const isAgentOrRestricted = !isSupervisor && !isAdmin && userProfile?.role !== 'Distribuidor';
 
   const activeAgents = useMemo(() => {
     return settings.telemarketingAgents.filter((a) => a.active);
@@ -115,6 +120,58 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
     });
   }, [currentAgent, desde, hasta, prospectos, gestiones, citas, ventas]);
 
+  // Estados para tabla de resultados de gestión por día
+  const [soloDiasConActividad, setSoloDiasConActividad] = useState<boolean>(true);
+  const [ordenDiario, setOrdenDiario] = useState<'desc' | 'asc'>('desc');
+
+  // Filtrado y ordenamiento de días para la tabla de gestión diaria
+  const diasFiltrados = useMemo(() => {
+    let list = [...evolucionDiaria];
+    if (soloDiasConActividad) {
+      list = list.filter((d) => d.llamadas > 0 || (d.efectivos ?? 0) > 0 || d.citas > 0);
+    }
+    list.sort((a, b) => {
+      return ordenDiario === 'desc'
+        ? b.fecha.localeCompare(a.fecha)
+        : a.fecha.localeCompare(b.fecha);
+    });
+    return list;
+  }, [evolucionDiaria, soloDiasConActividad, ordenDiario]);
+
+  // Totales acumulados para la tabla de gestión diaria
+  const totalesDiarios = useMemo(() => {
+    const llamadas = evolucionDiaria.reduce((acc, d) => acc + (d.llamadas || 0), 0);
+    const efectivos = evolucionDiaria.reduce((acc, d) => acc + (d.efectivos || 0), 0);
+    const citas = evolucionDiaria.reduce((acc, d) => acc + (d.citas || 0), 0);
+    const efectividadPct = llamadas > 0 ? Number(((efectivos / llamadas) * 100).toFixed(1)) : 0;
+    const conversionCitaPct = efectivos > 0 ? Number(((citas / efectivos) * 100).toFixed(1)) : 0;
+
+    const resMap: Record<string, number> = {
+      'Cita': 0,
+      'Llamar luego': 0,
+      'No contesta': 0,
+      'Buzón': 0,
+      'No interesado': 0,
+      'Número desconectado/incorrecto': 0,
+    };
+    evolucionDiaria.forEach((d) => {
+      if (d.resultadosDetalle) {
+        Object.entries(d.resultadosDetalle).forEach(([k, v]) => {
+          resMap[k] = (resMap[k] || 0) + (v || 0);
+        });
+      }
+    });
+
+    return {
+      llamadas,
+      efectivos,
+      citas,
+      efectividadPct,
+      conversionCitaPct,
+      resMap,
+    };
+  }, [evolucionDiaria]);
+
   // Exportar a Excel
   const handleExportExcel = () => {
     exportReporteIndividualToExcel({
@@ -123,6 +180,7 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
       hasta,
       kpis,
       ventas: ventasPeriodo,
+      evolucionDiaria,
     });
   };
 
@@ -138,7 +196,7 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
         @media print {
           body {
             background-color: white !important;
-            color: black !important;
+            color: #0D2240 !important;
           }
           header, aside, .no-print, .print\\:hidden {
             display: none !important;
@@ -325,7 +383,14 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
               <Users className="w-4 h-4 text-sky-500" />
             </div>
             <div className="text-2xl font-black text-slate-900">{kpis.prospectosAsignados}</div>
-            <p className="text-[10px] text-slate-400 leading-tight">Recibidos en el período</p>
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Cartera activa asignada
+              {kpis.prospectosAsignadosPeriodo !== undefined && (
+                <span className="block text-slate-500 font-semibold mt-0.5">
+                  ({kpis.prospectosAsignadosPeriodo} ingresados en el período)
+                </span>
+              )}
+            </p>
           </div>
 
           {/* 2. Contactos Realizados */}
@@ -473,7 +538,7 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-black text-[#0D2240] flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-[#B8922A]" />
-              <span>Evolución Diaria (Llamadas y Citas)</span>
+              <span>Evolución Diaria (Llamadas, Efectivos y Citas)</span>
             </h3>
             <span className="text-[11px] text-slate-400 font-medium">Por día del período</span>
           </div>
@@ -490,6 +555,10 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
                     <linearGradient id="colorLlamadas" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0D2240" stopOpacity={0.4} />
                       <stop offset="95%" stopColor="#0D2240" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="colorEfectivos" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.45} />
+                      <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
                     </linearGradient>
                     <linearGradient id="colorCitas" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#B8922A" stopOpacity={0.5} />
@@ -511,11 +580,20 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
                   <Area
                     type="monotone"
                     dataKey="llamadas"
-                    name="Llamadas"
+                    name="Llamadas (Contactos)"
                     stroke="#0D2240"
                     strokeWidth={2}
                     fillOpacity={1}
                     fill="url(#colorLlamadas)"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="efectivos"
+                    name="Contactos efectivos"
+                    stroke="#10B981"
+                    strokeWidth={2}
+                    fillOpacity={1}
+                    fill="url(#colorEfectivos)"
                   />
                   <Area
                     type="monotone"
@@ -588,6 +666,227 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
             )}
           </div>
         </div>
+      </div>
+
+      {/* SECCIÓN: RESULTADOS DE GESTIÓN POR DÍA */}
+      <div className="bg-white rounded-3xl p-5 shadow-xs border border-slate-200/80 space-y-4 card-print">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="text-base font-black text-[#0D2240] flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-[#B8922A]" />
+              <span>Resultados de Gestión por Día ({diasFiltrados.length} {diasFiltrados.length === 1 ? 'día' : 'días'})</span>
+            </h3>
+            <p className="text-xs text-slate-500">
+              Desglose día por día de llamadas realizadas, efectividad, citas y distribución de resultados de llamada de {currentAgent}.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            {/* Toggle de solo días con actividad */}
+            <button
+              type="button"
+              onClick={() => setSoloDiasConActividad(!soloDiasConActividad)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                soloDiasConActividad
+                  ? 'bg-[#0D2240] text-white border-[#0D2240]'
+                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+              }`}
+            >
+              {soloDiasConActividad ? 'Mostrando: Solo con actividad' : 'Mostrando: Todos los días'}
+            </button>
+
+            {/* Orden de fecha */}
+            <button
+              type="button"
+              onClick={() => setOrdenDiario(ordenDiario === 'desc' ? 'asc' : 'desc')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
+              title="Cambiar orden de fechas"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+              <span>{ordenDiario === 'desc' ? 'Más recientes primero' : 'Más antiguos primero'}</span>
+            </button>
+          </div>
+        </div>
+
+        {diasFiltrados.length === 0 ? (
+          <div className="py-10 text-center space-y-2">
+            <Clock className="w-8 h-8 text-slate-300 mx-auto" />
+            <div className="text-sm font-bold text-slate-700">
+              No hay jornadas con actividad registradas en este período.
+            </div>
+            <p className="text-xs text-slate-400">
+              {soloDiasConActividad
+                ? 'Puedes desactivar "Solo con actividad" para ver todos los días del rango, o cambiar las fechas.'
+                : 'Prueba cambiando las fechas o seleccionando otro agente de telemarketing.'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200/70">
+            <table className="w-full text-left text-xs text-slate-700">
+              <thead className="bg-slate-50/90 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
+                <tr>
+                  <th className="py-3 px-3">Fecha</th>
+                  <th className="py-3 px-3 text-center">Llamadas</th>
+                  <th className="py-3 px-3 text-center">Efectivos</th>
+                  <th className="py-3 px-3 text-center">Citas</th>
+                  <th className="py-3 px-3 text-center">% Efect.</th>
+                  <th className="py-3 px-3 text-center">% Cita</th>
+                  <th className="py-3 px-2 text-center text-emerald-800 bg-emerald-50/50">Cita</th>
+                  <th className="py-3 px-2 text-center text-amber-800 bg-amber-50/50">Llamar luego</th>
+                  <th className="py-3 px-2 text-center text-slate-600 bg-slate-100/50">No contesta</th>
+                  <th className="py-3 px-2 text-center text-slate-600 bg-slate-100/50">Buzón</th>
+                  <th className="py-3 px-2 text-center text-rose-700 bg-rose-50/50">No interesado</th>
+                  <th className="py-3 px-2 text-center text-red-700 bg-red-50/50">Desconectado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {diasFiltrados.map((dia) => {
+                  const det = dia.resultadosDetalle || {};
+                  const isHoy = dia.fecha === getTodayInLA();
+
+                  return (
+                    <tr
+                      key={dia.fecha}
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        isHoy ? 'bg-amber-50/30 font-medium' : ''
+                      }`}
+                    >
+                      <td className="py-3 px-3 whitespace-nowrap font-bold text-slate-900">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{dia.fecha}</span>
+                          <span className="text-[11px] text-slate-400 font-normal">
+                            ({dia.fechaDisplay})
+                          </span>
+                          {isHoy && (
+                            <span className="px-1.5 py-0.5 text-[9px] font-extrabold uppercase bg-amber-200/80 text-amber-900 rounded">
+                              Hoy
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-3 text-center font-black text-slate-900">
+                        {dia.llamadas > 0 ? (
+                          <span className="inline-block px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800">
+                            {dia.llamadas}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">0</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-3 text-center font-black text-emerald-700">
+                        {(dia.efectivos ?? 0) > 0 ? (
+                          <span className="inline-block px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {dia.efectivos}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">0</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-3 text-center font-black text-[#9a781f]">
+                        {dia.citas > 0 ? (
+                          <span className="inline-block px-2 py-0.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200">
+                            {dia.citas}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">0</span>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-3 text-center font-extrabold whitespace-nowrap">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] ${
+                            (dia.efectividadPct ?? 0) >= 30
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : (dia.efectividadPct ?? 0) > 0
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {dia.efectividadPct ?? 0}%
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-3 text-center font-bold text-slate-600 whitespace-nowrap">
+                        {dia.conversionCitaPct ?? 0}%
+                      </td>
+
+                      {/* Desglose de resultados individuales */}
+                      <td className="py-3 px-2 text-center font-bold text-emerald-800 bg-emerald-50/20">
+                        {det['Cita'] || <span className="text-slate-300 font-normal">-</span>}
+                      </td>
+
+                      <td className="py-3 px-2 text-center font-bold text-amber-800 bg-amber-50/20">
+                        {det['Llamar luego'] || <span className="text-slate-300 font-normal">-</span>}
+                      </td>
+
+                      <td className="py-3 px-2 text-center font-semibold text-slate-600 bg-slate-50/40">
+                        {det['No contesta'] || <span className="text-slate-300 font-normal">-</span>}
+                      </td>
+
+                      <td className="py-3 px-2 text-center font-semibold text-slate-600 bg-slate-50/40">
+                        {det['Buzón'] || <span className="text-slate-300 font-normal">-</span>}
+                      </td>
+
+                      <td className="py-3 px-2 text-center font-semibold text-rose-700 bg-rose-50/20">
+                        {det['No interesado'] || <span className="text-slate-300 font-normal">-</span>}
+                      </td>
+
+                      <td className="py-3 px-2 text-center font-semibold text-red-700 bg-red-50/20">
+                        {det['Número desconectado/incorrecto'] || (
+                          <span className="text-slate-300 font-normal">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-slate-100/90 text-slate-900 font-black border-t-2 border-slate-200">
+                <tr>
+                  <td className="py-3 px-3 uppercase tracking-wider text-[11px] text-slate-600">
+                    Total Período ({diasFiltrados.length} días)
+                  </td>
+                  <td className="py-3 px-3 text-center text-slate-900">
+                    {totalesDiarios.llamadas}
+                  </td>
+                  <td className="py-3 px-3 text-center text-emerald-700">
+                    {totalesDiarios.efectivos}
+                  </td>
+                  <td className="py-3 px-3 text-center text-[#9a781f]">
+                    {totalesDiarios.citas}
+                  </td>
+                  <td className="py-3 px-3 text-center text-slate-800">
+                    {totalesDiarios.efectividadPct}%
+                  </td>
+                  <td className="py-3 px-3 text-center text-slate-800">
+                    {totalesDiarios.conversionCitaPct}%
+                  </td>
+                  <td className="py-3 px-2 text-center text-emerald-800">
+                    {totalesDiarios.resMap['Cita'] || 0}
+                  </td>
+                  <td className="py-3 px-2 text-center text-amber-800">
+                    {totalesDiarios.resMap['Llamar luego'] || 0}
+                  </td>
+                  <td className="py-3 px-2 text-center text-slate-700">
+                    {totalesDiarios.resMap['No contesta'] || 0}
+                  </td>
+                  <td className="py-3 px-2 text-center text-slate-700">
+                    {totalesDiarios.resMap['Buzón'] || 0}
+                  </td>
+                  <td className="py-3 px-2 text-center text-rose-700">
+                    {totalesDiarios.resMap['No interesado'] || 0}
+                  </td>
+                  <td className="py-3 px-2 text-center text-red-700">
+                    {totalesDiarios.resMap['Número desconectado/incorrecto'] || 0}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* TABLA DE VENTAS DEL PERÍODO */}

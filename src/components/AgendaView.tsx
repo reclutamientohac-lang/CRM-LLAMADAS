@@ -1,3 +1,4 @@
+import { sumMoney, commission } from '../money';
 import { createPortal } from 'react-dom';
 import React, { useState, useMemo } from 'react';
 import {
@@ -208,8 +209,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         conVenta++;
       }
       if (v && v.estado !== 'Cancelada') {
-        if (v.montoAprobado) montoTotalVentas += v.montoAprobado;
-        if (v.bonoGenerado) bonosAcumulados += v.bonoGenerado;
+        if (v.montoAprobado) montoTotalVentas = sumMoney([montoTotalVentas, v.montoAprobado]);
+        if (v.bonoGenerado) bonosAcumulados = sumMoney([bonosAcumulados, v.bonoGenerado]);
       }
     });
 

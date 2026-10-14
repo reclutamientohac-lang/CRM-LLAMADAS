@@ -35,6 +35,7 @@ import {
   getTemperaturaBadgeClass,
   getEstadoBadgeClass,
   SIN_ASIGNAR,
+  generateGestionId,
 } from '../businessRules';
 
 interface RegistrarLlamadaModalProps {
@@ -62,6 +63,7 @@ export const RegistrarLlamadaModal: React.FC<RegistrarLlamadaModalProps> = ({
     settings.telemarketingAgents[0]?.name ||
     '';
 
+  const [operationId] = useState(() => generateGestionId());
   const [telemarketing, setTelemarketing] = useState(defaultAgent);
   const [fechaGestion, setFechaGestion] = useState(todayLA);
   const [horaGestion, setHoraGestion] = useState(timeNowAMPM);
@@ -141,6 +143,7 @@ export const RegistrarLlamadaModal: React.FC<RegistrarLlamadaModalProps> = ({
       const fechaHoraCustom = `${fechaGestion} ${horaGestion}`;
 
       const res = await registrarGestion(prospecto, {
+        operationId,
         fechaHora: fechaHoraCustom,
         telemarketing,
         canal: 'Llamada',

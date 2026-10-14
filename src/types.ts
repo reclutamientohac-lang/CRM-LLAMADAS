@@ -50,6 +50,11 @@ export interface Retroalimentacion {
 export type EstadoVenta = 'Pendiente' | 'Aprobada' | 'Cancelada';
 
 export interface Venta {
+  montoAprobadoCentavos?: number | null;
+  porcentajeBonoPuntos?: number | null;
+  bonoGeneradoCentavos?: number | null;
+  bonoPagableCentavos?: number;
+  ultimaOperacionId?: string;
   id: string; // formato VENTA-aaaammddhhmmss-xxxx
   idProspecto: string;
   idCita: string;

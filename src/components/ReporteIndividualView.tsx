@@ -1,3 +1,4 @@
+import { truncateDecimal, sumMoney } from '../money';
 import { VendedoresReport } from './VendedoresReport';
 import React, { useState, useMemo } from 'react';
 import {

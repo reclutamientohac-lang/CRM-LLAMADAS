@@ -1,3 +1,4 @@
+import { serverTimestamp } from 'firebase/firestore';
 import { collection, doc, getDocsFromServer, runTransaction } from 'firebase/firestore';
 import { db } from '../firebase';
 import React,{useMemo,useState,useRef} from 'react';
@@ -52,7 +53,7 @@ function UnificarGenesis() {
            for(const field of row.fields) if(isGenesis(data[field])) {before[field]=data[field];after[field]=target!;}
            if(!Object.keys(after).length) return false;
            const now=new Date().toISOString();
-           tx.set(doc(collection(db,'auditoria')),{accion:'UNIFICAR_IDENTIDAD',operacion:operation,coleccion:row.collection,idRegistro:row.id,antes:before,despues:after,usuario:user?.email,fecha:now});
+           tx.set(doc(collection(db,'auditoria')),{registradoEnServidor:serverTimestamp(),accion:'UNIFICAR_IDENTIDAD',operacion:operation,coleccion:row.collection,idRegistro:row.id,antes:before,despues:after,usuario:user?.email,fecha:now});
            tx.update(ref,{...after,...(row.collection==='ventas'||row.collection==='citas'?{ultimaActualizacion:now}:{})});
            return true;
          });

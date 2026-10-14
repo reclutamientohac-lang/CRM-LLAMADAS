@@ -1,3 +1,4 @@
+import { sumMoney, commission } from '../money';
 import React, { useState, useRef } from 'react';
 import {
   X,
@@ -239,8 +240,8 @@ export const CargarAgendaHistoricaModal: React.FC<CargarAgendaHistoricaModalProp
       if (matched) vinculadas++;
       else nuevos++;
 
-      if (r.montoAprobado) totalM += r.montoAprobado;
-      if (r.bonoGenerado) totalB += r.bonoGenerado;
+      if (r.montoAprobado) totalM = sumMoney([totalM, r.montoAprobado]);
+      if (r.bonoGenerado) totalB = sumMoney([totalB, r.bonoGenerado]);
 
       return {
         ...r,

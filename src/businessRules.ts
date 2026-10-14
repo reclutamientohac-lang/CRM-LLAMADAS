@@ -1,3 +1,4 @@
+import { truncateDecimal, commission, sumMoney, scaledInteger } from './money';
 /**
  * Reglas de Negocio Centralizadas para CRM LLAMADAS
  * Etapa 1
@@ -379,9 +380,7 @@ export function generateIdWithPrefix(prefix: string): string {
   const minute = getPart('minute');
   const second = getPart('second');
 
-  const randomSuffix = Math.random().toString(36).substring(2, 6).toLowerCase();
-
-  return `${prefix}-${year}${month}${day}${hour}${minute}${second}-${randomSuffix}`;
+  return `${prefix}-${year}${month}${day}${hour}${minute}${second}-${crypto.randomUUID()}`;
 }
 
 /**
@@ -1436,7 +1435,7 @@ export function formatCurrency(amount: number | null | undefined): string {
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(truncateDecimal(amount));
 }
 
 /**
@@ -1446,8 +1445,8 @@ export function formatPercentageDisplay(ratio: number | null | undefined): strin
   if (ratio === null || ratio === undefined || isNaN(ratio)) {
     return '-';
   }
-  const pct = Number((ratio * 100).toFixed(2));
-  return `${pct}%`;
+  const pct = Number(scaledInteger(ratio, 4)) / 100;
+  return `${pct.toFixed(2)}%`;
 }
 
 /**
@@ -1462,23 +1461,23 @@ export function parseCurrencyInput(
     return { valid: true, value: null };
   }
   if (typeof raw === 'number') {
-    if (isNaN(raw) || raw < 0) {
-      return { valid: false, value: null, error: 'El monto debe ser un número mayor o igual a 0.' };
+    if (!Number.isFinite(raw) || raw < 0 || raw > 10000000) {
+      return { valid: false, value: null, error: 'El monto debe ser un número entre 0 y 10.000.000.' };
     }
-    return { valid: true, value: Number(raw.toFixed(2)) };
+    return { valid: true, value: truncateDecimal(raw) };
   }
 
   const cleaned = String(raw).replace(/\$/g, '').replace(/\s+/g, '').replace(/,/g, '.');
-  const num = parseFloat(cleaned);
+  const num = /^\d+(?:\.\d*)?$/.test(cleaned) ? Number(cleaned) : NaN;
 
-  if (isNaN(num)) {
+  if (!Number.isFinite(num)) {
     return { valid: false, value: null, error: 'El valor ingresado no es un número válido.' };
   }
-  if (num < 0) {
-    return { valid: false, value: null, error: 'El monto debe ser mayor o igual a 0.' };
+  if (num < 0 || num > 10000000) {
+    return { valid: false, value: null, error: 'El monto debe ser entre 0 y 10.000.000.' };
   }
 
-  return { valid: true, value: Number(num.toFixed(2)) };
+  return { valid: true, value: truncateDecimal(num) };
 }
 
 /**
@@ -1493,27 +1492,27 @@ export function parsePercentageInput(
     return { valid: true, ratio: null };
   }
   if (typeof raw === 'number') {
-    if (isNaN(raw) || raw < 0) {
-      return { valid: false, ratio: null, error: 'El porcentaje debe ser mayor o igual a 0.' };
+    if (!Number.isFinite(raw) || raw < 0 || raw > 100) {
+      return { valid: false, ratio: null, error: 'El porcentaje debe ser entre 0 y 100.' };
     }
     // Si viene como fracción menor a 0.20, por ejemplo 0.015, se mantiene, si viene como número entero ej 1.5 se divide entre 100
     const ratio = raw <= 1 && raw > 0 ? raw : raw / 100;
-    return { valid: true, ratio };
+    return { valid: true, ratio: truncateDecimal(ratio, 4) };
   }
 
   const cleaned = String(raw).replace(/%/g, '').replace(/\s+/g, '').replace(/,/g, '.');
-  const num = parseFloat(cleaned);
+  const num = /^\d+(?:\.\d*)?$/.test(cleaned) ? Number(cleaned) : NaN;
 
-  if (isNaN(num)) {
+  if (!Number.isFinite(num)) {
     return { valid: false, ratio: null, error: 'El porcentaje ingresado no es un número válido.' };
   }
-  if (num < 0) {
-    return { valid: false, ratio: null, error: 'El porcentaje debe ser mayor o igual a 0.' };
+  if (num < 0 || num > 100) {
+    return { valid: false, ratio: null, error: 'El porcentaje debe ser entre 0 y 100.' };
   }
 
   // Se interpreta como porcentaje: 1.5 -> 0.015
-  const ratio = Number((num / 100).toFixed(5));
-  return { valid: true, ratio };
+  const ratio = Number(scaledInteger(num, 2)) / 10000;
+  return { valid: true, ratio: truncateDecimal(ratio, 4) };
 }
 
 /**
@@ -1528,7 +1527,7 @@ export function calculateBonoGenerado(
   if (montoAprobado === null || porcentajeBono === null || isNaN(montoAprobado) || isNaN(porcentajeBono)) {
     return null;
   }
-  return Number((montoAprobado * porcentajeBono).toFixed(2));
+  return commission(montoAprobado, porcentajeBono);
 }
 
 export function calculateBonoPagable(
@@ -1697,18 +1696,9 @@ export function calculateReporteIndividual({
   const ventasPendientes = ventasPeriodo.filter((item) => item.venta.estado === 'Pendiente');
 
   const ventasCerradas = ventasAprobadas.length;
-  const montoTotalVendido = ventasAprobadas.reduce(
-    (acc, item) => acc + (item.venta.montoAprobado || 0),
-    0
-  );
-  const bonosAcumulados = ventasAprobadas.reduce(
-    (acc, item) => acc + (item.venta.bonoPagable || 0),
-    0
-  );
-  const bonosPendientes = ventasPendientes.reduce(
-    (acc, item) => acc + (item.venta.bonoGenerado || 0),
-    0
-  );
+  const montoTotalVendido = sumMoney(ventasAprobadas.map(item => item.venta.montoAprobado));
+  const bonosAcumulados = sumMoney(ventasAprobadas.map(item => item.venta.bonoPagable));
+  const bonosPendientes = sumMoney(ventasPendientes.map(item => item.venta.bonoGenerado));
 
   // Tasas
   const efectividadPct =
@@ -1718,7 +1708,7 @@ export function calculateReporteIndividual({
   const cierrePct =
     citasAsistidas > 0 ? Number(((ventasCerradas / citasAsistidas) * 100).toFixed(1)) : 0;
   const ticketPromedio =
-    ventasCerradas > 0 ? Number((montoTotalVendido / ventasCerradas).toFixed(2)) : 0;
+    ventasCerradas > 0 ? truncateDecimal(montoTotalVendido / ventasCerradas) : 0;
 
   const kpis: ReporteIndividualKPIs = {
     prospectosAsignados,
@@ -1891,7 +1881,7 @@ export function calculateReport(data:import('./stage78/types').ReportData,filter
   if(cohort)ps.forEach(p=>{const historical=p.intentosHistoricos||0;if(!historical)return;const r=rowFor(p);for(const t of [r,total]){t.metrics.contactos+=historical;t.metrics.efectivos+=p.contactosEfectivosHistoricos||0;addContacted(t,p.id);}});
   const resultIds=new Set(data.retroalimentaciones.map(r=>r.idCita));
   cs.forEach(c=>{const r=rowFor(pMap.get(c.idProspecto)!,c,'citas');for(const t of [r,total]){t.metrics.citas++;if(c.estadoCita==='Realizada')t.metrics.realizadas++;if(c.estadoCita!=='Cancelada'&&!resultIds.has(c.id))t.metrics.pendientes++;t.ids.citas.push(c.id);}});
-  vs.forEach(v=>{if(v.estado==='Cancelada')return;const r=rowFor(pMap.get(v.idProspecto)!,v,'ventas');for(const t of [r,total]){t.metrics.ventas++;if(v.estado==='Aprobada')t.metrics.monto+=v.montoAprobado||0;t.metrics.bonoGenerado+=v.bonoGenerado||0;t.metrics.bonoPagable+=v.bonoPagable||0;t.ids.ventas.push(v.id);}});
+  vs.forEach(v=>{if(v.estado==='Cancelada')return;const r=rowFor(pMap.get(v.idProspecto)!,v,'ventas');for(const t of [r,total]){t.metrics.ventas++;if(v.estado==='Aprobada')t.metrics.monto=sumMoney([t.metrics.monto,v.montoAprobado||0]);t.metrics.bonoGenerado=sumMoney([t.metrics.bonoGenerado,v.bonoGenerado||0]);t.metrics.bonoPagable=sumMoney([t.metrics.bonoPagable,v.bonoPagable||0]);t.ids.ventas.push(v.id);}});
   for(const r of [...rows.values(),total])reportRatios(r.metrics);
   const relevantIds=new Set([...ps.map(p=>p.id),...gs.map(g=>g.idProspecto),...cs.map(c=>c.idProspecto),...vs.map(v=>v.idProspecto)]);
   return {rows:[...rows.values()],total,data:{prospectos:selected.filter(p=>relevantIds.has(p.id)),gestiones:gs,citas:cs,ventas:vs,retroalimentaciones:data.retroalimentaciones.filter(r=>activeIds.has(r.idProspecto))}};

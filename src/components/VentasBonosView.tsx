@@ -1,3 +1,4 @@
+import { truncateDecimal, sumMoney, percentageNumber } from '../money';
 import { PrintReport } from './AgendaView';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
@@ -164,7 +165,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         const montoStr = v.montoAprobado !== null && v.montoAprobado !== undefined ? String(v.montoAprobado) : '';
         const pctStr =
           v.porcentajeBono !== null && v.porcentajeBono !== undefined
-            ? String(Number((v.porcentajeBono * 100).toFixed(2)))
+            ? String(percentageNumber(v.porcentajeBono))
             : '';
 
         // Si ya está editándose localmente y fue modificada, preservar cambios del usuario
@@ -314,7 +315,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const origMonto = curr.original.montoAprobado !== null ? String(curr.original.montoAprobado) : '';
       const origPct =
         curr.original.porcentajeBono !== null
-          ? String(Number((curr.original.porcentajeBono * 100).toFixed(2)))
+          ? String(percentageNumber(curr.original.porcentajeBono))
           : '';
       const origEstadoPago = curr.original.estadoPagoHistorico || 'Pendiente';
       const origFechaPago = curr.original.fechaPagoHistorico || '';
@@ -450,7 +451,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           ...next[id],
           montoAprobadoStr: v.montoAprobado !== null ? String(v.montoAprobado) : '',
           porcentajeBonoStr:
-            v.porcentajeBono !== null ? String(Number((v.porcentajeBono * 100).toFixed(2))) : '',
+            v.porcentajeBono !== null ? String(percentageNumber(v.porcentajeBono)) : '',
           estado: v.estado,
           observacion: v.observacion || '',
           bonoGenerado: bGen,
@@ -588,13 +589,13 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
       const bPag = r ? r.bonoPagable || 0 : v.bonoPagable || 0;
       const estPago = r ? r.estadoPago : (v.estadoPagoHistorico || 'Pendiente');
 
-      totalMonto += monto;
-      totalBonoGen += bGen;
-      totalBonoPag += bPag;
+      totalMonto = sumMoney([totalMonto, monto]);
+      totalBonoGen = sumMoney([totalBonoGen, bGen]);
+      totalBonoPag = sumMoney([totalBonoPag, bPag]);
 
       if (estPago === 'Pagada') {
         countComisionesPagadas++;
-        totalComisionesPagadas += (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0);
+        totalComisionesPagadas = sumMoney([totalComisionesPagadas, (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0)]);
       }
     });
 
@@ -617,26 +618,26 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
     const canceladas = list.filter((v) => (editableRows[v.id]?.estado || v.estado) === 'Cancelada');
     const pagadas = list.filter((v) => (editableRows[v.id]?.estadoPago || v.estadoPagoHistorico) === 'Pagada');
 
-    const montoPend = pendientes.reduce((acc, v) => {
+    const montoPend = sumMoney(pendientes.map((v) => {
       const r = editableRows[v.id];
-      return acc + (r ? parseCurrencyInput(r.montoAprobadoStr).value || 0 : v.montoAprobado || 0);
-    }, 0);
+      return (r ? parseCurrencyInput(r.montoAprobadoStr).value || 0 : v.montoAprobado || 0);
+    }));
 
-    const montoAprob = aprobadas.reduce((acc, v) => {
+    const montoAprob = sumMoney(aprobadas.map((v) => {
       const r = editableRows[v.id];
-      return acc + (r ? parseCurrencyInput(r.montoAprobadoStr).value || 0 : v.montoAprobado || 0);
-    }, 0);
+      return (r ? parseCurrencyInput(r.montoAprobadoStr).value || 0 : v.montoAprobado || 0);
+    }));
 
-    const bonoPagableAprob = aprobadas.reduce((acc, v) => {
+    const bonoPagableAprob = sumMoney(aprobadas.map((v) => {
       const r = editableRows[v.id];
-      return acc + (r ? r.bonoPagable || 0 : v.bonoPagable || 0);
-    }, 0);
+      return (r ? r.bonoPagable || 0 : v.bonoPagable || 0);
+    }));
 
-    const montoComisionesPagadas = pagadas.reduce((acc, v) => {
+    const montoComisionesPagadas = sumMoney(pagadas.map((v) => {
       const r = editableRows[v.id];
       const bGen = r ? r.bonoGenerado || 0 : v.bonoGenerado || 0;
-      return acc + (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0);
-    }, 0);
+      return (r?.bonoPagadoHistorico ?? v.bonoPagadoHistorico ?? bGen ?? 0);
+    }));
 
     return {
       pendientesCount: pendientes.length,
@@ -673,7 +674,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           Prospecto: pros?.nombre || '',
           Teléfono: pros?.telefono || '',
           'Monto Aprobado ($)': monto !== null ? monto : 0,
-          '% Bono': pct !== null ? `${Number((pct * 100).toFixed(2))}%` : '-',
+          '% Bono': pct !== null ? `${percentageNumber(pct)}%` : '-',
           'Estado Venta': st,
           'Bono Generado ($)': bGen !== null ? bGen : 0,
           'Saldo Por Pagar ($)': bPag,
@@ -721,13 +722,13 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
     return logsVentas.filter((l) => l.idVenta === historyVentaId);
   }, [historyVentaId, logsVentas]);
 
-  if (!isSupervisor && !isAdmin) {
+  if (!isAdmin) {
     return (
       <div className="max-w-md mx-auto py-16 text-center space-y-4">
         <ShieldAlert className="w-16 h-16 text-rose-500 mx-auto" />
         <h2 className="text-xl font-bold text-slate-800">Acceso Restringido</h2>
         <p className="text-sm text-slate-500">
-          El módulo de <strong>Ventas y Bonos</strong> es exclusivo para Administradores y Supervisores.
+          El módulo de <strong>Ventas y Bonos</strong> es exclusivo para el Administrador.
         </p>
       </div>
     );
@@ -739,7 +740,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
         filters={`Fecha de cita: ${desde || 'Inicio'} a ${hasta || 'Todo el historial'} · Telemarketing: ${filtroTelemarketing} · Estado: ${filtroEstado} · Pago: ${filtroPago} · Búsqueda: ${searchTerm || 'Todas'}`}
         columns={['Fecha cita', 'Prospecto', 'Telemarketing', 'Monto aprobado', 'Estado venta', 'Bono generado', 'Bono por pagar', 'Pago histórico']}
         rows={filteredVentasList.map(v => [formatDateDisplay(citasMap.get(v.idCita)?.fechaCita || v.fechaReporte), prospectosMap.get(v.idProspecto)?.nombre || v.idProspecto, v.telemarketing, v.montoAprobado == null ? 'No registrado' : formatCurrency(v.montoAprobado), v.estado, v.bonoGenerado == null ? 'No registrado' : formatCurrency(v.bonoGenerado), formatCurrency(v.bonoPagable), v.estadoPagoHistorico === 'Pagada' ? `Pagada · ${formatCurrency(v.bonoPagadoHistorico || 0)}` : 'Sin pago registrado'])}
-        summary={`${modifiedCount > 0 ? 'ATENCIÓN: hay cambios sin guardar; este reporte contiene únicamente los datos guardados. ' : ''}Total ventas: ${filteredVentasList.length} · Monto aprobado: ${formatCurrency(filteredVentasList.reduce((s,v)=>s+(v.montoAprobado || 0),0))} · Bonos por pagar: ${formatCurrency(filteredVentasList.reduce((s,v)=>s+(v.bonoPagable || 0),0))} · Bonos pagados históricos: ${formatCurrency(filteredVentasList.filter(v=>v.estadoPagoHistorico==='Pagada').reduce((s,v)=>s+(v.bonoPagadoHistorico || 0),0))}`}
+        summary={`${modifiedCount > 0 ? 'ATENCIÓN: hay cambios sin guardar; este reporte contiene únicamente los datos guardados. ' : ''}Total ventas: ${filteredVentasList.length} · Monto aprobado: ${formatCurrency(sumMoney(filteredVentasList.map(v => v.montoAprobado)))} · Bonos por pagar: ${formatCurrency(sumMoney(filteredVentasList.map(v => v.bonoPagable)))} · Bonos pagados históricos: ${formatCurrency(sumMoney(filteredVentasList.filter(v=>v.estadoPagoHistorico==='Pagada').map(v=>v.bonoPagadoHistorico)))}`}
       />
       <div className="flex flex-wrap items-center gap-3 print:hidden">
         <button type="button" disabled={modifiedCount > 0 || isSaving} onClick={() => window.print()} className="px-4 py-2 rounded-xl bg-[#0D2240] text-white font-bold disabled:opacity-50">Imprimir / PDF</button>

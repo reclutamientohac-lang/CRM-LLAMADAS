@@ -1,3 +1,5 @@
+import { truncateDecimal, sumMoney, percentageNumber } from '../money';
+import { PhoneIndexSetup } from './PhoneIndexSetup';
 import { UnificarPropietarios } from './UnificarPropietarios';
 import React, { useState } from 'react';
 import {
@@ -98,6 +100,7 @@ export const ConfiguracionView: React.FC = () => {
   if (!isSupervisor) {
     return (
       <div className="max-w-md mx-auto py-16 text-center space-y-4">
+      {isAdmin && <PhoneIndexSetup />}
         <Shield className="w-16 h-16 text-rose-500 mx-auto" />
         <h2 className="text-xl font-bold text-slate-800">Acceso Restringido</h2>
         <p className="text-sm text-slate-500">
@@ -373,7 +376,7 @@ export const ConfiguracionView: React.FC = () => {
 
   const handleStartEditRegla = (regla: ReglaComision) => {
     setEditingReglaId(regla.id);
-    setEditingReglaPct(String(Number((regla.porcentaje * 100).toFixed(2))));
+    setEditingReglaPct(String(percentageNumber(regla.porcentaje)));
     setEditingReglaDesde(regla.vigenteDesde);
     setEditingReglaHasta(regla.vigenteHasta || '');
     setEditingReglaNota(regla.nota || '');
@@ -992,51 +995,8 @@ export const ConfiguracionView: React.FC = () => {
               </button>
             </div>
 
-            {/* Card Limpiar */}
-            <div className="p-6 rounded-2xl bg-rose-50/50 border border-rose-200 space-y-4">
-              <div className="w-12 h-12 rounded-xl bg-rose-600 text-white flex items-center justify-center font-bold">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-rose-950">
-                  Limpiar Todos los Prospectos
-                </h3>
-                <p className="text-xs text-rose-800 mt-1 leading-relaxed">
-                  Elimina todos los registros de la colección de prospectos para dejar la base de datos limpia. Requiere confirmación de supervisor.
-                </p>
-              </div>
+            <div className="rounded-2xl border border-slate-200 p-5 text-sm text-slate-600">El borrado global está deshabilitado para proteger los registros reales.</div>
 
-              {showClearConfirm ? (
-                <div className="p-3 bg-white rounded-xl border border-rose-300 space-y-2">
-                  <p className="text-xs font-bold text-rose-900">
-                    ¿Estás seguro de eliminar todos los ({prospectos.length}) prospectos?
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowClearConfirm(false)}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={handleClearAll}
-                      disabled={sampleLoading}
-                      className="px-3 py-1.5 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-lg cursor-pointer"
-                    >
-                      {sampleLoading ? 'Limpiando...' : 'Sí, eliminar todos'}
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowClearConfirm(true)}
-                  className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md shadow-rose-900/10 transition-all cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span>Limpiar Todos los Prospectos ({prospectos.length})</span>
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}

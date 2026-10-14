@@ -46,7 +46,7 @@ service cloud.firestore {
     function esVendedor() { return tieneRol(['Vendedor']) && agenteValido(); }
     function esTelemarketing() { return tieneRol(['Telemarketing']) && agenteValido(); }
     function esSupervisor() { return esAdmin() || tieneRol(['Supervisor']); }
-    function esAutorizado() { return esAdmin() || esSupervisor() || esDistribuidor() || ((tieneRol(['Telemarketing', 'Vendedor'])) && agenteValido()); }
+    function esAutorizado() { return esAdmin() || tieneRol(['Supervisor','Distribuidor']) || (tieneRol(['Telemarketing','Vendedor']) && agenteValido()); }
     function rolActual() { return esAdmin() ? 'Administrador' : getDocAutorizado().get('rol', ''); }
     function esDueno(data) { return esVendedor() && data.get('propietarioEmail', '') == userEmail(); }
 
@@ -66,13 +66,85 @@ service cloud.firestore {
       return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['propietarioEmail', 'propietario', 'telemarketing', 'creadoPor', 'creadoEn', 'id']);
     }
 
+    function alcance(data) { return esSupervisor() || esDistribuidor() || esPropietarioAsignado(data); }
+    function texto(data, key, max) { return data.get(key, '') is string && data.get(key, '').size() <= max; }
+    function vinculo(data) { return texto(data, 'idProspecto', 200) && data.idProspecto.size() > 0 && texto(data, 'idCita', 200); }
+    function pendienteSinFinanzas(data) {
+      return vinculo(data) && getAfter(/databases/$(database)/documents/citas/$(data.idCita)).data.idProspecto == data.idProspecto && data.estado == 'Pendiente' && data.montoAprobado == null && data.porcentajeBono == null &&
+        data.bonoGenerado == null && data.bonoPagable == 0 && data.get('estadoPagoHistorico', 'Pendiente') == 'Pendiente' &&
+        data.get('bonoPagadoHistorico', null) == null && data.get('fechaPagoHistorico', null) == null &&
+        data.get('montoAprobadoCentavos', null) == null && data.get('porcentajeBonoPuntos', null) == null &&
+        data.get('bonoGeneradoCentavos', null) == null && data.get('bonoPagableCentavos', 0) == 0 && texto(data, 'observacion', 5000) &&
+        data.keys().hasOnly(['id','idProspecto','idCita','fechaReporte','telemarketing','montoAprobado','estado','porcentajeBono','bonoGenerado','bonoPagable','ultimaActualizacion','observacion','estadoPagoHistorico','bonoPagadoHistorico','fechaPagoHistorico','modificadoPor','registradoEnServidor','montoAprobadoCentavos','porcentajeBonoPuntos','bonoGeneradoCentavos','bonoPagableCentavos']);
+    }
+    function calculoFinancieroValido(data) {
+      let amount = data.get('montoAprobadoCentavos', null);
+      let rate = data.get('porcentajeBonoPuntos', null);
+      let bonus = amount == null || rate == null ? null : int(amount * rate / 10000);
+      let payable = data.get('estado','Pendiente') == 'Aprobada' && data.get('estadoPagoHistorico', 'Pendiente') != 'Pagada' ? (bonus == null ? 0 : bonus) : 0;
+      return (!('montoAprobadoCentavos' in data)) || (
+        (amount == null || (amount is int && amount >= 0 && amount <= 1000000000)) &&
+        (rate == null || (rate is int && rate >= 0 && rate <= 10000)) &&
+        data.estado in ['Pendiente','Aprobada','Cancelada'] &&
+        data.montoAprobado == (amount == null ? null : amount / 100.0) && data.porcentajeBono == (rate == null ? null : rate / 10000.0) &&
+        data.bonoGeneradoCentavos == bonus && data.bonoGenerado == (bonus == null ? null : bonus / 100.0) &&
+        data.bonoPagableCentavos == payable && data.bonoPagable == payable / 100.0
+      );
+    }
+    function cambioFinanciero() { return request.resource.data.diff(resource.data).affectedKeys().hasAny(['montoAprobado','porcentajeBono','estado','bonoGenerado','bonoPagable','estadoPagoHistorico','bonoPagadoHistorico','fechaPagoHistorico','montoAprobadoCentavos','porcentajeBonoPuntos','bonoGeneradoCentavos','bonoPagableCentavos']); }
+    function tieneLogFinanciero(id) {
+      let log = getAfter(/databases/$(database)/documents/logVentas/$(request.resource.data.ultimaOperacionId)).data;
+      return request.resource.data.actualizadoEnServidor == request.time && log.idVenta == id && log.usuario == userEmail() && log.registradoEnServidor == request.time;
+    }
+    function formaProspecto(data) {
+      return texto(data, 'nombre', 300) && texto(data, 'observacion', 5000) && texto(data, 'contexto', 5000) && texto(data, 'propietario', 300) &&
+        texto(data, 'ciudadZona', 500) && data.get('intentos',0) is int && data.get('intentos',0) >= 0 && data.get('intentos',0) <= 1000000 &&
+        data.get('contactosEfectivos',0) is int && data.get('contactosEfectivos',0) >= 0 && data.get('contactosEfectivos',0) <= data.get('intentos',0) &&
+        data.get('archivado',false) is bool;
+    }
+    function telefonoReservado(data, id) {
+      return data.telefono is string && data.telefono.matches('^[0-9]{10}$') &&
+        get(/databases/$(database)/documents/settings/phoneIndexStatus).data.ready == true &&
+        getAfter(/databases/$(database)/documents/telefonosUnicos/$(data.telefono)).data.idProspecto == id;
+    }
+    function incrementoConGestion(id) {
+      let gid = request.resource.data.get('ultimaGestionId', '');
+      let gesture = getAfter(/databases/$(database)/documents/gestiones/$(gid)).data;
+      return gid.size() > 0 && !exists(/databases/$(database)/documents/gestiones/$(gid)) &&
+        gesture.idProspecto == id && gesture.creadoPor == userEmail() && gesture.registradoEnServidor == request.time &&
+        request.resource.data.intentos == resource.data.get('intentos',0) + 1 &&
+        request.resource.data.contactosEfectivos == resource.data.get('contactosEfectivos',0) + (gesture.efectivo == 'Sí' ? 1 : 0);
+    }
+    function contadorCoherente(id) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return !changed.hasAny(['intentos','contactosEfectivos','intentosHistoricos','contactosEfectivosHistoricos']) ||
+        (!changed.hasAny(['intentosHistoricos','contactosEfectivosHistoricos']) && incrementoConGestion(id));
+    }
+    function gestionNuevaValida(id) {
+      let data=request.resource.data;
+      let lead=getAfter(/databases/$(database)/documents/prospectos/$(data.idProspecto)).data;
+      return data.id == id && data.creadoPor == userEmail() && data.registradoEnServidor == request.time &&
+        data.efectivo in ['Sí','No'] && data.resultado in ['No contesta','Buzón','No interesado','Llamar luego','Cita','Número desconectado/incorrecto'] &&
+        texto(data,'observacion',5000) && lead.ultimaGestionId == id && lead.intentos == get(/databases/$(database)/documents/prospectos/$(data.idProspecto)).data.get('intentos',0)+1;
+    }
+    function resultadoNuevoValido(data) {
+      return vinculo(data) && data.creadoPor == userEmail() && data.registradoEnServidor == request.time && texto(data,'observacion',5000) &&
+        data.resultado in ['Venta','Recibió sin compra','No se visitó','No se visito','No recibió','Reprogramar','Venta futura','No interesada dio referencias','No interesada sin referencias','Cancelación'] &&
+        getAfter(/databases/$(database)/documents/citas/$(data.idCita)).data.idProspecto == data.idProspecto;
+    }
+    function alcancePosterior(id) {
+      let lead = getAfter(/databases/$(database)/documents/prospectos/$(id)).data;
+      return esSupervisor() || esDistribuidor() || esDueno(lead) || (esTelemarketing() && lead.telemarketing == telemarketingActual());
+    }
+
     match /respaldos/{id} { allow read, write: if esAdmin(); }
     match /logRestauraciones/{id} { allow read, write: if esAdmin(); }
     match /reportesGuardados/{id} { allow read, write: if esAdmin(); }
     match /auditoria/{id} {
       allow read: if esSupervisor();
-      allow create: if esAutorizado() && request.resource.data.usuario == userEmail();
-      allow update, delete: if esAdmin();
+      allow create: if esAutorizado() && request.resource.data.usuario == userEmail() && texto(request.resource.data,'accion',80) && request.resource.data.registradoEnServidor == request.time;
+      allow update: if esAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado','aplicados','error']);
+      allow delete: if false;
     }
     match /logAsignaciones/{id} {
       allow read: if esSupervisor();
@@ -81,7 +153,7 @@ service cloud.firestore {
     }
     // Extensión explícita del registro. Solo colecciones nuevas; las existentes conservan sus reglas.
     match /{collectionName}/{id} {
-      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones']);
+      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones','telefonosUnicos']);
     }
 
     // Colección: usuariosAutorizados
@@ -114,7 +186,7 @@ service cloud.firestore {
     // Colección: settings
     match /settings/{settingId} {
       allow read: if esAutorizado();
-      allow write: if (settingId in ['backupParameters','backupRegistry']) ? esAdmin() : esSupervisor();
+      allow write: if esAdmin();
     }
 
     // Colección: logCargas
@@ -127,56 +199,74 @@ service cloud.firestore {
     // Colección: gestiones
     match /gestiones/{gestionId} {
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
-      allow update: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data) && request.resource.data.idProspecto == resource.data.idProspecto && request.resource.data.telemarketing == resource.data.telemarketing);
-      allow delete: if esSupervisor();
+      allow create: if esAdmin() || (alcance(request.resource.data) && eventoVendedorValido(request.resource.data) && gestionNuevaValida(gestionId));
+      allow update: if esAdmin() || (alcance(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['observacion','actualizadoEnServidor']) && texto(request.resource.data,'observacion',5000));
+      allow delete: if esAdmin();
     }
 
+    function ventaDeCitaValida(data, id) {
+      let saleId=data.get('idVenta','');
+      return saleId == '' || (getAfter(/databases/$(database)/documents/ventas/$(saleId)).data.idCita == id && getAfter(/databases/$(database)/documents/ventas/$(saleId)).data.idProspecto == data.idProspecto);
+    }
     // Colección: citas
     match /citas/{citaId} {
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
       allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
-      allow update: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data) && request.resource.data.idProspecto == resource.data.idProspecto && request.resource.data.telemarketing == resource.data.telemarketing);
+      allow update: if esAdmin() || (ventaDeCitaValida(request.resource.data,citaId) && (esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data) && request.resource.data.idProspecto == resource.data.idProspecto && request.resource.data.telemarketing == resource.data.telemarketing)));
       allow delete: if esSupervisor();
     }
 
     // Colección: retroalimentaciones
     match /retroalimentaciones/{retroId} {
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
-      allow update, delete: if esSupervisor();
+      allow create: if esAdmin() || (alcance(request.resource.data) && eventoVendedorValido(request.resource.data) && resultadoNuevoValido(request.resource.data));
+      allow update, delete: if esAdmin();
     }
 
     // Colección: ventas
     match /ventas/{ventaId} {
-      allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data) && (
-        !esVendedor() || (request.resource.data.estado == 'Pendiente' && request.resource.data.montoAprobado == null && request.resource.data.bonoGenerado == null && request.resource.data.bonoPagable == 0)
-      ));
-      allow update: if esSupervisor() || (esVendedor() && esPropietarioAsignado(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['observacion', 'ultimaActualizacion']));
-      allow delete: if esSupervisor();
+      allow read: if alcance(resource.data);
+      allow create: if (esAdmin() && calculoFinancieroValido(request.resource.data)) || (alcance(request.resource.data) && eventoVendedorValido(request.resource.data) && ventaId == 'VENTA-' + request.resource.data.idCita && pendienteSinFinanzas(request.resource.data));
+      allow update: if (esAdmin() && calculoFinancieroValido(request.resource.data) && (!cambioFinanciero() || tieneLogFinanciero(ventaId))) ||
+        (alcance(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['observacion','ultimaActualizacion','actualizadoEnServidor']) && texto(request.resource.data,'observacion',5000));
+      allow delete: if false;
     }
 
     // Colección: logVentas
     match /logVentas/{logId} {
       allow read: if esSupervisor() || esDistribuidor();
-      allow create: if esSupervisor();
-      allow update, delete: if esAdmin();
+      allow create: if (esAdmin() && request.resource.data.get('origen','') == 'Restauración histórica' && request.resource.data.registradoEnServidor == request.time && getAfter(/databases/$(database)/documents/logRestauraciones/$(request.resource.data.restauracionId)).data.usuario == userEmail()) || (esAdmin() && request.resource.data.usuario == userEmail() && request.resource.data.registradoEnServidor == request.time &&
+        getAfter(/databases/$(database)/documents/ventas/$(request.resource.data.idVenta)).data.ultimaOperacionId == logId &&
+        request.resource.data.montoAnterior == get(/databases/$(database)/documents/ventas/$(request.resource.data.idVenta)).data.get('montoAprobado',null) &&
+        request.resource.data.montoNuevo == getAfter(/databases/$(database)/documents/ventas/$(request.resource.data.idVenta)).data.get('montoAprobado',null) &&
+        request.resource.data.porcentajeNuevo == getAfter(/databases/$(database)/documents/ventas/$(request.resource.data.idVenta)).data.get('porcentajeBono',null) &&
+        request.resource.data.estadoNuevo == getAfter(/databases/$(database)/documents/ventas/$(request.resource.data.idVenta)).data.estado);
+      allow update, delete: if false;
+    }
+
+    match /telefonosUnicos/{phone} {
+      allow get: if esAutorizado();
+      allow list: if esAdmin();
+      allow create, update: if esAdmin() || (esAutorizado() && phone.matches('^[0-9]{10}$') && (!exists(/databases/$(database)/documents/telefonosUnicos/$(phone)) || resource.data.idProspecto == request.resource.data.idProspecto) &&
+        getAfter(/databases/$(database)/documents/prospectos/$(request.resource.data.idProspecto)).data.telefono == phone &&
+        alcancePosterior(request.resource.data.idProspecto));
+      allow delete: if esAdmin() || (esPropietarioAsignado(resource.data) && getAfter(/databases/$(database)/documents/prospectos/$(resource.data.idProspecto)).data.telefono != phone);
     }
 
     // Colección: prospectos
     match /prospectos/{prospectoId} {
+      allow get: if esAutorizado() && !exists(/databases/$(database)/documents/prospectos/$(prospectoId));
       allow get, list: if esAutorizado() && (
         esSupervisor() || esDistribuidor() || esDueno(resource.data) ||
         (esTelemarketing() && resource.data.telemarketing == telemarketingActual())
       );
-      allow create: if esAdmin() || (esAutorizado() && (!esVendedor() || (
+      allow create: if esAdmin() || (formaProspecto(request.resource.data) && telefonoReservado(request.resource.data,prospectoId) && request.resource.data.get('intentos',0) == 0 && request.resource.data.get('contactosEfectivos',0) == 0 && request.resource.data.registradoEnServidor == request.time && esAutorizado() && (!esVendedor() || (
         request.resource.data.propietarioEmail == userEmail() &&
         request.resource.data.propietario == getDocAutorizado().nombre &&
         request.resource.data.telemarketing == telemarketingActual() &&
         request.resource.data.creadoPor == userEmail()
       )));
-      allow update: if esAdmin() || (asignacionIntacta() && (
+      allow update: if esAdmin() || (formaProspecto(request.resource.data) && contadorCoherente(prospectoId) && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['telefono']) || telefonoReservado(request.resource.data,prospectoId)) && asignacionIntacta() && (
         esSupervisor() || esDistribuidor() || esDueno(resource.data) ||
         (esTelemarketing() && resource.data.telemarketing == telemarketingActual())
       ));

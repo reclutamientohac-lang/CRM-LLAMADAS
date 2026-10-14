@@ -1,3 +1,9 @@
+import { sumMoney, commission, percentageNumber } from './money';
+export const MAX_EXCEL_BYTES = 5 * 1024 * 1024;
+export function validateExcelFile(file: Pick<File,'size'|'name'>) {
+  if (!Number.isFinite(file.size) || file.size <= 0 || file.size > MAX_EXCEL_BYTES) throw new Error('El archivo debe tener contenido y no superar 5 MB.');
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error('Utiliza un archivo .xlsx, .xls o .csv.');
+}
 /**
  * Utilidades para Carga Masiva y Exportación con SheetJS (xlsx)
  * Etapa 2 de CRM LLAMADAS
@@ -385,8 +391,9 @@ export async function parseAndValidateExcel(
   };
 }> {
   try {
+    validateExcelFile(file);
     const arrayBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+    const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, sheetRows: 5002 });
 
     if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
       return {
@@ -713,7 +720,7 @@ export function exportReporteIndividualToExcel({
       'Prospecto': v.nombreProspecto,
       'Teléfono': v.telefonoProspecto,
       'Monto Aprobado ($)': v.venta.montoAprobado !== null ? v.venta.montoAprobado : '-',
-      '% Bono': v.venta.porcentajeBono !== null ? `${(v.venta.porcentajeBono * 100).toFixed(1)}%` : '-',
+      '% Bono': v.venta.porcentajeBono !== null ? `${percentageNumber(v.venta.porcentajeBono).toFixed(2)}%` : '-',
       'Estado': v.venta.estado,
       'Bono Generado ($)': v.venta.bonoGenerado !== null ? v.venta.bonoGenerado : 0,
       'Bono Pagable ($)': v.venta.bonoPagable !== null ? v.venta.bonoPagable : 0,
@@ -767,7 +774,7 @@ export function exportAgendaToExcel(params: {
         'Invitado': c.invitado || '-',
         'Venta Monto ($)': venta?.montoAprobado !== null && venta?.montoAprobado !== undefined ? venta.montoAprobado : '-',
         'Estado Venta': venta?.estado || '-',
-        '% Bono': venta?.porcentajeBono !== null && venta?.porcentajeBono !== undefined ? `${(venta.porcentajeBono * 100).toFixed(1)}%` : '-',
+        '% Bono': venta?.porcentajeBono !== null && venta?.porcentajeBono !== undefined ? `${percentageNumber(venta.porcentajeBono).toFixed(2)}%` : '-',
         'Bono Generado ($)': venta?.bonoGenerado !== null && venta?.bonoGenerado !== undefined ? venta.bonoGenerado : '-',
         'Bono Pagable ($)': venta?.bonoPagable !== null && venta?.bonoPagable !== undefined ? venta.bonoPagable : '-',
         'Estado Comisión': venta?.estadoPagoHistorico || (venta ? 'Pendiente' : '-'),
@@ -798,7 +805,7 @@ export function exportAgendaToExcel(params: {
           'Telemarketing': c.telemarketing || p?.telemarketing || 'SIN ASIGNAR',
           'Quién Atiende': c.quienAtiende || '-',
           'Monto Aprobado ($)': venta.montoAprobado !== null ? venta.montoAprobado : 0,
-          '% Bono': venta.porcentajeBono !== null ? `${(venta.porcentajeBono * 100).toFixed(1)}%` : '-',
+          '% Bono': venta.porcentajeBono !== null ? `${percentageNumber(venta.porcentajeBono).toFixed(2)}%` : '-',
           'Bono Generado ($)': venta.bonoGenerado !== null ? venta.bonoGenerado : 0,
           'Bono Pagable ($)': venta.bonoPagable !== null ? venta.bonoPagable : 0,
           'Estado Comisión': venta.estadoPagoHistorico || 'Pendiente',
@@ -827,8 +834,8 @@ export function exportAgendaToExcel(params: {
 
       const v = ventasMap?.get(c.id);
       if (v && v.estado !== 'Cancelada') {
-        if (v.montoAprobado) totalMonto += v.montoAprobado;
-        if (v.bonoGenerado) totalBonos += v.bonoGenerado;
+        if (v.montoAprobado) totalMonto = sumMoney([totalMonto, v.montoAprobado]);
+        if (v.bonoGenerado) totalBonos = sumMoney([totalBonos, v.bonoGenerado]);
       }
     });
 
@@ -962,8 +969,9 @@ export async function parseAgendaHistoricaExcel(
   };
   warnings: string[];
 }> {
+  validateExcelFile(file);
   const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: 'array' });
+  const wb = XLSX.read(buffer, { type: 'array', sheetRows: 5002 });
   const firstSheetName = wb.SheetNames[0];
   const ws = wb.Sheets[firstSheetName];
   const rawJson: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' });
@@ -1099,7 +1107,7 @@ export async function parseAgendaHistoricaExcel(
       const cleanBono = typeof rawBono === 'number' ? rawBono : Number(String(rawBono).replace(/[^0-9.-]+/g, ''));
       if (!isNaN(cleanBono)) bonoGenerado = cleanBono;
     } else if (montoAprobado && porcentajeBono) {
-      bonoGenerado = Number((montoAprobado * porcentajeBono).toFixed(2));
+      bonoGenerado = commission(montoAprobado, porcentajeBono);
     }
 
     // 15. Estado Comisión / Pago
@@ -1135,7 +1143,7 @@ export async function parseAgendaHistoricaExcel(
 
     if (resultado === 'Venta' || montoAprobado) {
       conVentaCount++;
-      if (montoAprobado) totalMonto += montoAprobado;
+      if (montoAprobado) totalMonto = sumMoney([totalMonto, montoAprobado]);
     }
     if (bonoGenerado) {
       conBonoCount++;

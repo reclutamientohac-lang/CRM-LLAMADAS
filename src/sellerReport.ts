@@ -1,3 +1,4 @@
+import {sumMoney} from './money';
 import type { Prospecto, Gestion, Cita, Venta } from './types';
 import { reportDateLA } from './businessRules';
 import { ownerEmail } from './sellerPolicy';
@@ -19,6 +20,6 @@ export function sellerReport(data: { prospectos: Prospecto[]; gestiones: Gestion
     citasCanceladas: cs.filter(c => c.estadoCita === 'Cancelada').length,
     ventasAprobadas: vs.filter(v => v.estado === 'Aprobada').length,
     ventasPendientes: vs.filter(v => v.estado === 'Pendiente').length,
-    volumen: vs.filter(v => v.estado === 'Aprobada').reduce((sum, v) => sum + (Number.isFinite(v.montoAprobado) ? v.montoAprobado! : 0), 0),
+    volumen: sumMoney(vs.filter(v => v.estado === 'Aprobada').map(v => Number.isFinite(v.montoAprobado) ? v.montoAprobado! : 0)),
   };
 }

@@ -1,3 +1,5 @@
+import { createProspectWithPhone, updateProspectWithPhone } from '../phoneRegistry';
+import { financialFields, cents, truncateDecimal } from '../money';
 import { sellerDefaults, sellerUpdateAllowed, ownsProspect, ownerEmail } from '../sellerPolicy';
 import { subscribeCRMRecords } from '../stage78/scopedSubscription';
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
@@ -12,6 +14,10 @@ import {
   where,
   getDocs,
   writeBatch,
+  increment,
+  serverTimestamp,
+  runTransaction,
+  getDoc,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { useAuth } from './AuthContext';
@@ -143,6 +149,7 @@ interface CRMContextType {
   registrarGestion: (
     prospecto: Prospecto,
     gestionData: {
+      operationId?: string;
       fechaHora?: string;
       telemarketing: string;
       canal?: string;
@@ -538,21 +545,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setProspectos(loaded);
         setLoading(false);
 
-        if (toUpdateTemperaturas.length > 0 && isSupervisor) {
-          try {
-            const batch = writeBatch(db);
-            toUpdateTemperaturas.slice(0, 50).forEach((u) => {
-              const docRef = doc(db, 'prospectos', u.id);
-              batch.update(docRef, {
-                temperatura: u.newTemp,
-                modificadoEn: new Date().toISOString(),
-              });
-            });
-            await batch.commit();
-          } catch (syncErr) {
-            console.warn('Aviso: recalculo de temperatura en batch:', syncErr);
-          }
-        }
+
       },
       (err) => {
         console.error('Error cargando prospectos:', err);
@@ -599,21 +592,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const normalizedPhone = phoneRes.normalizedPhone;
 
-    // 2. Validación defensiva en Firestore completo
-    try {
-      const dupQuery = query(collection(db, 'prospectos'), where('telefono', '==', normalizedPhone), ...(userProfile?.role === 'Vendedor' ? [where('propietarioEmail', '==', ownerEmail(userProfile.email))] : []));
-      const dupSnap = await getDocs(dupQuery);
-      if (!dupSnap.empty) {
-        const remoteDup = dupSnap.docs[0].data() as Prospecto;
-        return {
-          success: false,
-          error: `DUPLICADO: El teléfono normalizado (${normalizedPhone}) ya pertenece al prospecto existente "${remoteDup.nombre}" (ID: ${remoteDup.id}, Estado: "${remoteDup.estado}").`,
-        };
-      }
-    } catch (checkErr) {
-      console.warn('Verificación remota de duplicado en Firestore:', checkErr);
-    }
-
+    // La unicidad global se valida atómicamente junto con la creación.
     // 3. Validar nombre
     if (!data.nombre || data.nombre.trim().length === 0) {
       return { success: false, error: 'El nombre del prospecto es obligatorio.' };
@@ -667,7 +646,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     try {
-      await setDoc(doc(db, 'prospectos', id), newProspecto);
+      await createProspectWithPhone(newProspecto);
       return { success: true, prospecto: newProspecto };
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `prospectos/${id}`);
@@ -703,13 +682,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modificadoPor: userIdentifier,
       };
 
-      const batch = writeBatch(db);
-      batch.update(doc(db, 'prospectos', id), payload);
-      const previous = prospectos.find(p => p.id === id);
-      if (updates.telemarketing !== undefined && previous?.telemarketing !== updates.telemarketing) {
-        batch.set(doc(collection(db, 'logAsignaciones')), {idProspecto: id, anterior: previous?.telemarketing || '', nueva: updates.telemarketing, usuario: userIdentifier, fecha: new Date().toISOString()});
-      }
-      await batch.commit();
+      await updateProspectWithPhone(id, payload, userIdentifier);
       return { success: true };
     } catch (err) {
       handleFirestoreError(err, OperationType.UPDATE, `prospectos/${id}`);
@@ -966,7 +939,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // ID único con sufijo secuencial
       const uniqueSuffix = (idx + 1).toString().padStart(4, '0');
-      const prospectoId = `PROS-${nowParts}${timeParts}-${uniqueSuffix}`;
+      const prospectoId = generateProspectoId();
 
       const lead: Prospecto = {
         id: prospectoId,
@@ -1008,22 +981,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let savedTotal = 0;
 
     try {
-      for (let i = 0; i < prospectosToSave.length; i += BATCH_SIZE) {
-        const chunk = prospectosToSave.slice(i, i + BATCH_SIZE);
-        const batch = writeBatch(db);
-
-        chunk.forEach((item) => {
-          const docRef = doc(db, 'prospectos', item.id);
-          batch.set(docRef, item);
-        });
-
-        await batch.commit();
-        savedTotal += chunk.length;
-
-        if (onProgress) {
-          const percent = Math.round((savedTotal / prospectosToSave.length) * 100);
-          onProgress(percent, savedTotal);
-        }
+      for (let i = 0; i < prospectosToSave.length; i += 10) {
+        const group=prospectosToSave.slice(i,i+10);
+        const results=await Promise.allSettled(group.map(lead=>createProspectWithPhone(lead)));
+        savedTotal+=results.filter(r=>r.status==='fulfilled').length;
+        onProgress?.(Math.round(savedTotal / prospectosToSave.length * 100),savedTotal);
+        const failed=results.find(r=>r.status==='rejected');
+        if(failed?.status==='rejected') throw new Error(String(failed.reason));
       }
 
       // Guardar registro de carga en logCargas
@@ -1122,6 +1086,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Cargar ~30 prospectos de muestra con gestiones y citas coherentes para el Dashboard
   const loadSampleData = async () => {
+    if (!import.meta.env.DEV || !isAdmin) return {success:false,count:0,error:'Los datos de muestra solo se habilitan en desarrollo para el administrador.'};
     try {
       const email = user?.email || 'supervisor@crmllamadas.local';
       const sampleList = generateSampleProspectos(email);
@@ -1129,6 +1094,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const batch = writeBatch(db);
 
+      batch.set(doc(db,'settings','phoneIndexStatus'),{ready:false,actualizadoEnServidor:serverTimestamp()});
       sampleList.forEach((lead) => {
         const ref = doc(db, 'prospectos', lead.id);
         batch.set(ref, lead);
@@ -1196,41 +1162,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Limpiar datos de muestra o todos los prospectos, gestiones y citas
-  const clearSampleData = async () => {
-    try {
-      const prosSnap = await getDocs(collection(db, 'prospectos'));
-      const gestSnap = await getDocs(collection(db, 'gestiones'));
-      const citSnap = await getDocs(collection(db, 'citas'));
-      const venSnap = await getDocs(collection(db, 'ventas'));
-
-      const batch = writeBatch(db);
-      let count = 0;
-      prosSnap.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-        count++;
-      });
-      gestSnap.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-      });
-      citSnap.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-      });
-      venSnap.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-      });
-
-      await batch.commit();
-      return { success: true, count };
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'prospectos');
-      return { success: false, count: 0, error: 'Error al limpiar datos.' };
-    }
-  };
+  const clearSampleData = async () => ({ success: false, count: 0, error: 'El borrado global está deshabilitado. Usa un respaldo y operaciones específicas revisadas.' });
 
   // Registrar gestión (llamada) y opcionalmente crear cita vinculada
   const registrarGestion = async (
     prospecto: Prospecto,
     gestionData: {
+      operationId?: string;
       fechaHora?: string;
       telemarketing: string;
       canal?: string;
@@ -1261,14 +1199,21 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const esEfectivoBool = isContactoEfectivo(gestionData.resultado);
       const efectivoStr: 'Sí' | 'No' = esEfectivoBool ? 'Sí' : 'No';
 
-      const idGestion = generateGestionId();
+      const idGestion = gestionData.operationId || generateGestionId();
       let idCitaGenerada = '';
 
-      const batch = writeBatch(db);
+      const result = await runTransaction(db, async batch => {
+      const previousGesture = await batch.get(doc(db, 'gestiones', idGestion));
+      const currentProspect = await batch.get(doc(db, 'prospectos', prospecto.id));
+      if (previousGesture.exists()) return { success: true, idGestion, idCita: previousGesture.data().idCita || '' };
+      if (!currentProspect.exists()) throw new Error('El prospecto ya no está disponible.');
+      prospecto = { ...currentProspect.data(), id: currentProspect.id } as Prospecto;
+
 
       // Si el resultado es Cita, crear registro en colección "citas"
       if (gestionData.resultado === 'Cita' && gestionData.citaData) {
-        idCitaGenerada = generateCitaId();
+        idCitaGenerada = `CITA-${idGestion}`;
+        if ((await batch.get(doc(db, 'citas', idCitaGenerada))).exists()) throw new Error('La cita ya existe. No se sobrescribió.');
         const citaRef = doc(db, 'citas', idCitaGenerada);
         const mapsLink = generateGoogleMapsLink(gestionData.citaData.direccion);
         const nuevaCita: Cita = {
@@ -1290,7 +1235,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           calendarSyncRequested: nowISO,
           ultimaActualizacion: nowISO,
         };
-        batch.set(citaRef, nuevaCita);
+        batch.set(citaRef, { ...nuevaCita, registradoEnServidor: serverTimestamp() });
       }
 
       // Crear registro en colección "gestiones"
@@ -1307,10 +1252,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fechaSeguimiento: gestionData.fechaSeguimiento || '',
         horaSeguimiento: gestionData.horaSeguimiento || '',
         idCita: idCitaGenerada || '',
-        creadoPor: user?.email || userProfile?.displayName || gestionData.telemarketing,
+        creadoPor: user?.email?.toLowerCase() || userProfile?.displayName || gestionData.telemarketing,
         creadoEn: nowISO,
       };
-      batch.set(gestionRef, nuevaGestion);
+      batch.set(gestionRef, { ...nuevaGestion, registradoEnServidor: serverTimestamp() });
 
       // Reglas de negocio para actualizar prospecto
       const nuevoEstado = getEstadoByResultado(gestionData.resultado);
@@ -1339,8 +1284,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const prospectoRef = doc(db, 'prospectos', prospecto.id);
       batch.update(prospectoRef, {
-        intentos: (prospecto.intentos || 0) + 1,
-        contactosEfectivos: (prospecto.contactosEfectivos || 0) + (esEfectivoBool ? 1 : 0),
+        ultimaGestionId: idGestion,
+        actualizadoEnServidor: serverTimestamp(),
+        intentos: increment(1),
+        contactosEfectivos: increment(esEfectivoBool ? 1 : 0),
         ultimoContacto: fechaHoraGestion,
         ultimoResultado: gestionData.resultado,
         estado: nuevoEstado,
@@ -1352,13 +1299,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modificadoEn: nowISO,
       });
 
-      await batch.commit();
 
       return {
         success: true,
         idGestion,
         idCita: idCitaGenerada,
       };
+      });
+      return result;
     } catch (err: any) {
       console.error('Error registrando gestión:', err);
       handleFirestoreError(err, OperationType.WRITE, 'gestiones');
@@ -1384,15 +1332,24 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const nowISO = new Date().toISOString();
       const nowLA = formatDateTimeLA(new Date());
-      const batch = writeBatch(db);
+      const existingSales = resultadoData.resultado === 'Venta'
+        ? await getDocs(query(collection(db, 'ventas'), where('idCita', '==', cita.id))) : null;
+      if (existingSales && existingSales.size > 1) throw new Error('Esta cita tiene ventas duplicadas. Requiere revisión administrativa antes de cambiarla.');
+      const candidateId = existingSales?.docs[0]?.id || `VENTA-${cita.id}`;
+      return await runTransaction(db, async batch => {
+      const currentCita = await batch.get(doc(db, 'citas', cita.id));
+      const currentProspect = await batch.get(doc(db, 'prospectos', cita.idProspecto));
+      if (!currentCita.exists() || !currentProspect.exists() || currentCita.data().idProspecto !== cita.idProspecto) throw new Error('Cita o prospecto no disponible.');
+      const saleSnapshot = resultadoData.resultado === 'Venta' ? await batch.get(doc(db, 'ventas', currentCita.data().idVenta || candidateId)) : null;
 
       const idRetro = generateRetroalimentacionId();
       let idVentaGenerada: string | undefined = undefined;
 
       // 1. Si es Venta, buscar venta existente para esta cita o crear una nueva (evita duplicados)
       if (resultadoData.resultado === 'Venta') {
-        const ventaExistente = ventas.find((v) => v.idCita === cita.id);
+        const ventaExistente = saleSnapshot?.exists() ? { ...saleSnapshot.data(), id: saleSnapshot.id } as Venta : null;
         if (ventaExistente) {
+          if (ventaExistente.idCita !== cita.id || ventaExistente.idProspecto !== cita.idProspecto) throw new Error('La venta vinculada no corresponde a esta cita. Requiere revisión administrativa.');
           idVentaGenerada = ventaExistente.id;
           const ventaRef = doc(db, 'ventas', ventaExistente.id);
           batch.update(ventaRef, {
@@ -1400,7 +1357,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             ultimaActualizacion: nowISO,
           });
         } else {
-          idVentaGenerada = generateVentaId();
+          idVentaGenerada = candidateId;
           const ventaRef = doc(db, 'ventas', idVentaGenerada);
           const sugerenciaComision = getSugerenciaComision(cita.fechaCita, settings.reglasComision || []);
           const nuevaVenta: Venta = {
@@ -1411,14 +1368,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             telemarketing: cita.telemarketing,
             montoAprobado: null,
             estado: 'Pendiente',
-            porcentajeBono: sugerenciaComision,
+            porcentajeBono: null,
             bonoGenerado: null,
             bonoPagable: 0,
             ultimaActualizacion: nowISO,
             observacion: resultadoData.observacion || '',
             modificadoPor: user?.email || 'Sistema',
           };
-          batch.set(ventaRef, nuevaVenta);
+          batch.set(ventaRef, { ...nuevaVenta, registradoEnServidor: serverTimestamp() });
         }
       }
 
@@ -1436,10 +1393,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fechaProximoContacto: resultadoData.fechaProximoContacto || '',
         horaProximoContacto: resultadoData.horaProximoContacto || '',
         idVenta: idVentaGenerada || '',
-        creadoPor: user?.email || userProfile?.displayName || cita.telemarketing,
+        creadoPor: user?.email?.toLowerCase() || userProfile?.displayName || cita.telemarketing,
         creadoEn: nowISO,
       };
-      batch.set(retroRef, nuevaRetro);
+      batch.set(retroRef, { ...nuevaRetro, registradoEnServidor: serverTimestamp() });
 
       // 3. Actualizar la cita según el resultado
       const citaRef = doc(db, 'citas', cita.id);
@@ -1460,7 +1417,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // 4. Actualizar el prospecto asociado según la regla de negocio
-      const prospectoActual = prospectos.find((p) => p.id === cita.idProspecto);
+      const prospectoActual = currentProspect.data() as Prospecto;
       const prospectoRef = doc(db, 'prospectos', cita.idProspecto);
 
       if (resultadoData.resultado === 'Venta') {
@@ -1503,13 +1460,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       // Para No recibió y las dos No interesada: NO se modifica el estado del prospecto.
 
-      await batch.commit();
+      if (idVentaGenerada) batch.update(citaRef, { idVenta: idVentaGenerada });
 
       return {
         success: true,
         idRetro,
         idVenta: idVentaGenerada,
       };
+      });
     } catch (err: any) {
       console.error('Error registrando resultado de cita:', err);
       handleFirestoreError(err, OperationType.WRITE, 'retroalimentaciones');
@@ -1541,10 +1499,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fecha: nowLA,
         resultado: 'Cancelación',
         observacion: motivo,
-        creadoPor: user?.email || userProfile?.displayName || cita.telemarketing,
+        creadoPor: user?.email?.toLowerCase() || userProfile?.displayName || cita.telemarketing,
         creadoEn: nowISO,
       };
-      batch.set(retroRef, nuevaRetro);
+      batch.set(retroRef, {...nuevaRetro, registradoEnServidor:serverTimestamp()});
 
       // 2. Cita -> Cancelada
       const citaRef = doc(db, 'citas', cita.id);
@@ -1600,24 +1558,28 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: true, updatedCount: 0 };
     }
 
+    if (!isAdmin) return { success: false, updatedCount: 0, error: 'Solo el administrador puede modificar montos, bonos y pagos.' };
     try {
-      const userEmail = user?.email || userProfile?.displayName || 'Supervisor';
+      const userEmail = user?.email?.toLowerCase() || userProfile?.displayName || 'Administrador';
       const nowIso = new Date().toISOString();
       const nowLA = formatDateTimeLA(new Date());
 
-      const batch = writeBatch(db);
+      if (ventasActualizadas.length > 5) return { success: false, updatedCount: 0, error: 'Guarda hasta 5 ventas por operación para poder verificar los cambios de forma atómica.' };
+      return await runTransaction(db, async batch => {
+      const snapshots = await Promise.all(ventasActualizadas.map(v => batch.get(doc(db, 'ventas', v.id))));
+      const actuals = new Map(snapshots.filter(s => s.exists()).map(s => [s.id, { ...s.data(), id: s.id } as Venta]));
       const conflicts: string[] = [];
       let updatedCount = 0;
 
-      for (const vMod of ventasActualizadas) {
-        const ventaActual = ventas.find((v) => v.id === vMod.id);
+      for (let vMod of ventasActualizadas) {
+        const normalized = financialFields(vMod.montoAprobado, vMod.porcentajeBono, vMod.estado);
+        vMod = { ...vMod, montoAprobado: normalized.montoAprobado, porcentajeBono: normalized.porcentajeBono };
+        const ventaActual = actuals.get(vMod.id);
         if (!ventaActual) continue;
 
         // Detección de concurrencia: si otra persona modificó la venta mientras se editaba
         if (
-          vMod.ultimaActualizacionOriginal &&
-          ventaActual.ultimaActualizacion &&
-          vMod.ultimaActualizacionOriginal !== ventaActual.ultimaActualizacion
+          (vMod.ultimaActualizacionOriginal || ventas.find(v => v.id === vMod.id)?.ultimaActualizacion) !== ventaActual.ultimaActualizacion
         ) {
           conflicts.push(
             `Venta ${vMod.id}: fue modificada por ${ventaActual.modificadoPor || 'otro usuario'} a las ${formatDateTimeLA(
@@ -1636,7 +1598,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const bonoPagado = estadoPago === 'Pagada'
           ? (vMod.bonoPagadoHistorico !== undefined && vMod.bonoPagadoHistorico !== null
-              ? vMod.bonoPagadoHistorico
+              ? truncateDecimal(vMod.bonoPagadoHistorico)
               : (ventaActual.bonoPagadoHistorico ?? bonoGenerado ?? 0))
           : null;
 
@@ -1661,13 +1623,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           observacionNueva: `${vMod.observacion || ''}${estadoPago ? ` [Pago: ${estadoPago}${fechaPago ? ` el ${fechaPago}` : ''}]` : ''}`,
           tipoCambio: vMod.estado === 'Cancelada' ? 'CANCELAR' : 'ACTUALIZAR',
         };
-        batch.set(doc(db, 'logVentas', idLog), logDoc);
+        batch.set(doc(db, 'logVentas', idLog), { ...logDoc, registradoEnServidor: serverTimestamp() });
 
         // Actualizar documento venta
         const ventaRef = doc(db, 'ventas', vMod.id);
         batch.update(ventaRef, {
-          montoAprobado: vMod.montoAprobado,
-          porcentajeBono: vMod.porcentajeBono,
+          ultimaOperacionId: idLog,
+          actualizadoEnServidor: serverTimestamp(),
+          ...financialFields(vMod.montoAprobado, vMod.porcentajeBono, vMod.estado, estadoPago === 'Pagada'),
           estado: vMod.estado,
           bonoGenerado,
           bonoPagable,
@@ -1682,15 +1645,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatedCount++;
       }
 
-      if (updatedCount > 0) {
-        await batch.commit();
-      }
 
       return {
         success: true,
         updatedCount,
         conflicts: conflicts.length > 0 ? conflicts : undefined,
       };
+      });
     } catch (err: any) {
       console.error('Error actualizando ventas:', err);
       handleFirestoreError(err, OperationType.WRITE, 'ventas');
@@ -1710,24 +1671,27 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     montoPagado?: number | null,
     observacion?: string
   ): Promise<{ success: boolean; error?: string }> => {
+    if (!isAdmin) return { success: false, error: 'Solo el administrador puede modificar montos, bonos y pagos.' };
     try {
-      const ventaActual = ventas.find((v) => v.id === idVenta);
+      return await runTransaction(db, async batch => {
+      const snapshot = await batch.get(doc(db, 'ventas', idVenta));
+      const ventaActual = snapshot.exists() ? { ...snapshot.data(), id: snapshot.id } as Venta : null;
       if (!ventaActual) return { success: false, error: 'Venta no encontrada.' };
 
-      const userEmail = user?.email || userProfile?.displayName || 'Supervisor';
+      const userEmail = user?.email?.toLowerCase() || userProfile?.displayName || 'Administrador';
       const nowIso = new Date().toISOString();
       const nowLA = formatDateTimeLA(new Date());
 
       const bonoGenerado = ventaActual.bonoGenerado;
       const bonoPagable = calculateBonoPagable(ventaActual.estado, bonoGenerado, estadoPago);
       const bonoFinal = estadoPago === 'Pagada'
-        ? (montoPagado !== undefined && montoPagado !== null ? montoPagado : (ventaActual.bonoPagadoHistorico ?? bonoGenerado ?? 0))
+        ? (montoPagado !== undefined && montoPagado !== null ? truncateDecimal(montoPagado) : (ventaActual.bonoPagadoHistorico ?? bonoGenerado ?? 0))
         : null;
       const fechaFinal = estadoPago === 'Pagada'
         ? (fechaPago || ventaActual.fechaPagoHistorico || getTodayInLA())
         : null;
 
-      const batch = writeBatch(db);
+
 
       const idLog = generateLogVentaId();
       const logDoc: LogVenta = {
@@ -1745,10 +1709,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         observacionNueva: `${observacion !== undefined ? observacion : (ventaActual.observacion || '')} [Pago: ${estadoPago}${fechaFinal ? ` el ${fechaFinal}` : ''}]`,
         tipoCambio: 'ACTUALIZAR',
       };
-      batch.set(doc(db, 'logVentas', idLog), logDoc);
+      batch.set(doc(db, 'logVentas', idLog), { ...logDoc, registradoEnServidor: serverTimestamp() });
 
       const ventaRef = doc(db, 'ventas', ventaActual.id);
       batch.update(ventaRef, {
+        ultimaOperacionId: idLog,
+        actualizadoEnServidor: serverTimestamp(),
+        ...('montoAprobadoCentavos' in ventaActual ? { bonoPagableCentavos: cents(bonoPagable) } : {}),
         bonoPagable,
         estadoPagoHistorico: estadoPago,
         bonoPagadoHistorico: bonoFinal,
@@ -1758,8 +1725,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         modificadoPor: userEmail,
       });
 
-      await batch.commit();
       return { success: true };
+      });
     } catch (err: any) {
       console.error('Error actualizando pago de comisión:', err);
       handleFirestoreError(err, OperationType.WRITE, 'ventas');
@@ -1796,12 +1763,13 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Gestión de Reglas de Comisión en Configuración (solo Administrador)
   const agregarReglaComision = async (regla: Omit<ReglaComision, 'id'>) => {
+    if (!isAdmin) return { success: false, error: 'Solo el administrador puede configurar bonos.' };
     try {
       const id = generateReglaComisionId();
       const nuevaRegla: ReglaComision = {
         ...regla,
         id,
-        creadoPor: user?.email || 'Administrador',
+        creadoPor: user?.email?.toLowerCase() || 'Administrador',
         creadoEn: new Date().toISOString(),
       };
       const listaActual = settings.reglasComision || [];
@@ -1814,6 +1782,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const actualizarReglaComision = async (id: string, updates: Partial<ReglaComision>) => {
+    if (!isAdmin) return { success: false, error: 'Solo el administrador puede configurar bonos.' };
     try {
       const listaActual = settings.reglasComision || [];
       const nuevaLista = listaActual.map((r) => (r.id === id ? { ...r, ...updates } : r));
@@ -1825,6 +1794,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const eliminarReglaComision = async (id: string) => {
+    if (!isAdmin) return { success: false, error: 'Solo el administrador puede configurar bonos.' };
     try {
       const listaActual = settings.reglasComision || [];
       const nuevaLista = listaActual.filter((r) => r.id !== id);

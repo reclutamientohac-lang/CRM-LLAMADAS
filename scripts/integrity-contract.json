@@ -42,10 +42,6 @@
       "component": "RespaldoView"
     },
     {
-      "tab": "consulta",
-      "component": "ProspectosView"
-    },
-    {
       "tab": "accesos",
       "component": "AccesosView"
     },

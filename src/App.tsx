@@ -4,7 +4,6 @@ import './stage78/style.css';
 import { CalendarSync } from './components/CalendarSync';
 import { ReportesView } from './components/ReportesView';
 import { RespaldoView, BackupBanner } from './components/RespaldoView';
-import { ConsultaGlobalView } from './components/ConsultaGlobalView';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CRMProvider, useCRM } from './context/CRMContext';
@@ -156,8 +155,6 @@ function MainLayout() {
         return 'Ventas / Bonos';
       case 'individual':
         return 'Reporte individual';
-      case 'consulta':
-        return 'Buscador global';
       case 'reportes':
         return 'Resumen de gestión';
       case 'respaldo':
@@ -285,7 +282,6 @@ function MainLayout() {
           )}
           {currentTab === 'reportes' && isAdmin && <ReportesView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
-          {currentTab === 'consulta' && isAdmin && <ProspectosView />}
           {currentTab === 'accesos' && isAdmin && <AccesosView />}
           {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
           {currentTab !== 'pipeline' && currentTab !== 'trabajo' &&
@@ -297,7 +293,6 @@ function MainLayout() {
             currentTab !== 'reportes' &&
             currentTab !== 'individual' &&
             currentTab !== 'respaldo' &&
-            currentTab !== 'consulta' &&
             currentTab !== 'accesos' &&
             currentTab !== 'configuracion' && (
               <ProximamenteView

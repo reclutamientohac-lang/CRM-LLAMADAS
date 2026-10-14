@@ -11,7 +11,13 @@
     "lint": "tsc --noEmit",
     "test": "node --import tsx --test tests/stage78.test.ts",
     "test:rules": "firebase emulators:exec --project demo-crm-llamadas --only firestore \"node --import tsx --test tests/rules.test.ts\"",
-    "test:pipeline": "node --import tsx --test tests/pipeline.test.ts"
+    "test:pipeline": "node --import tsx --test tests/pipeline.test.ts",
+    "check:integrity": "node scripts/check-integrity.mjs",
+    "test:integrity": "node --test tests/integrity.test.mjs",
+    "predev": "npm run check:integrity",
+    "prebuild": "npm run verify",
+    "verify": "npm run check:integrity && npm run lint && npm test && npm run test:pipeline && npm run test:integrity",
+    "pretest": "npm run check:integrity"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -40,6 +46,7 @@
     "firebase-tools": "^14.17.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "typescript-compiler-api": "npm:typescript@5.9.3"
   }
 }

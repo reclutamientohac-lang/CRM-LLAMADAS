@@ -5,6 +5,15 @@ import { useAuth } from '../context/AuthContext';
 import { buildPipeline, PIPELINE_STAGES, type PipelineStage } from '../pipeline';
 import type { Prospecto } from '../types';
 
+const PIPELINE_HEADER_COLORS: Record<PipelineStage, string> = {
+  'sin-llamar': '#475569',
+  'una-llamada': '#0369a1',
+  'dos-llamadas': '#4338ca',
+  'tres-llamadas': '#7e22ce',
+  'con-cita': '#854d0e',
+  'con-venta': '#047857',
+};
+
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('es');
 
 const ingresoReciente = (p: Prospecto) => {
@@ -72,8 +81,8 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
         {groups.map(group => {
           const limit = limits[group.id] || 10;
           return <section key={group.id} aria-label={group.label} className="rounded-2xl border border-slate-200 bg-slate-100/70 overflow-hidden">
-            <div className="p-4 bg-white border-t-4 border-b border-slate-200" style={{ borderTopColor: group.color }}>
-              <h2 className="font-bold text-[#0D2240] text-sm">{group.label}</h2><div className="flex items-end justify-between mt-3"><span className="text-3xl font-extrabold" style={{ color: group.color }}>{group.rows.length.toLocaleString('es')}</span><span className="text-xs text-slate-500">{total ? (100 * group.rows.length / total).toFixed(1) : '0'}%</span></div><p className="text-xs text-slate-500 mt-2">{group.description}</p>
+            <div className="p-4 min-h-36 text-white border-t-4 border-b border-white/10" style={{ backgroundColor: PIPELINE_HEADER_COLORS[group.id], borderTopColor: group.color }}>
+              <h2 className="font-bold text-white text-sm">{group.label}</h2><div className="flex items-end justify-between mt-3"><span className="text-3xl font-extrabold text-white">{group.rows.length.toLocaleString('es')}</span><span className="text-xs font-semibold text-white bg-white/15 rounded-full px-2 py-1">{total ? (100 * group.rows.length / total).toFixed(1) : '0'}%</span></div><p className="text-xs text-white/90 mt-2">{group.description}</p>
             </div>
             <div className="p-3 space-y-3">
               {group.rows.slice(0, limit).map(row => <button key={row.prospecto.id} onClick={() => onOpenProspecto(row.prospecto)} aria-label={`Abrir ficha de ${row.prospecto.nombre}`} className="w-full text-left bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-[#B8922A] hover:shadow-md focus-visible:outline-2 focus-visible:outline-[#B8922A] transition">

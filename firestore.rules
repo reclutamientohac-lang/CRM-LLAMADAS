@@ -198,6 +198,8 @@ service cloud.firestore {
 
     // Colección: gestiones
     match /gestiones/{gestionId} {
+      // Transactions check a new ID before writing. No existing foreign record is exposed.
+      allow get: if esAutorizado() && !exists(/databases/$(database)/documents/gestiones/$(gestionId));
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
       allow create: if esAdmin() || (alcance(request.resource.data) && eventoVendedorValido(request.resource.data) && gestionNuevaValida(gestionId));
       allow update: if esAdmin() || (alcance(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['observacion','actualizadoEnServidor']) && texto(request.resource.data,'observacion',5000));
@@ -210,6 +212,8 @@ service cloud.firestore {
     }
     // Colección: citas
     match /citas/{citaId} {
+      // Transactions check a new ID before writing. No existing foreign record is exposed.
+      allow get: if esAutorizado() && !exists(/databases/$(database)/documents/citas/$(citaId));
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
       allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
       allow update: if esAdmin() || (ventaDeCitaValida(request.resource.data,citaId) && (esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data) && request.resource.data.idProspecto == resource.data.idProspecto && request.resource.data.telemarketing == resource.data.telemarketing)));
@@ -225,6 +229,8 @@ service cloud.firestore {
 
     // Colección: ventas
     match /ventas/{ventaId} {
+      // Transactions check a new ID before writing. No existing foreign record is exposed.
+      allow get: if esAutorizado() && !exists(/databases/$(database)/documents/ventas/$(ventaId));
       allow read: if alcance(resource.data);
       allow create: if (esAdmin() && calculoFinancieroValido(request.resource.data)) || (alcance(request.resource.data) && eventoVendedorValido(request.resource.data) && ventaId == 'VENTA-' + request.resource.data.idCita && pendienteSinFinanzas(request.resource.data));
       allow update: if (esAdmin() && calculoFinancieroValido(request.resource.data) && (!cambioFinanciero() || tieneLogFinanciero(ventaId))) ||

@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {before,after,test} from 'node:test';
 import assert from 'node:assert/strict';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,setDoc,getDoc,updateDoc,deleteDoc,writeBatch,serverTimestamp,increment} from 'firebase/firestore';
+import {doc,setDoc,getDoc,updateDoc,deleteDoc,writeBatch,serverTimestamp,increment,runTransaction,getDocs,collection} from 'firebase/firestore';
 import {createProspectWithPhone} from '../src/phoneRegistry';
 import {financialFields} from '../src/money';
 import {validateExcelFile} from '../src/excelUtils';
@@ -87,4 +87,28 @@ test('restauración mantiene bitácora existente y registra cambios financieros 
  assert.equal((await getDoc(doc(admin,'ventas','restore-finance'))).data()?.montoAprobado,200);
  assert.equal((await getDoc(doc(admin,'logVentas','historic-existing'))).data()?.montoNuevo,100);
  assert.equal((await getDoc(doc(admin,'logVentas','historic-missing'))).data()?.origen,'Restauración histórica');
+});
+
+
+test('lectura de gestión nueva dentro de transacción no bloquea llamadas ni permite leer carteras ajenas',async()=>{
+ const db=accounts.Telemarketing;
+ await env.withSecurityRulesDisabled(async c=>{
+  await setDoc(doc(c.firestore(),'prospectos','transaction-lead'),{id:'transaction-lead',telefono:'5558881111',intentos:0,contactosEfectivos:0,propietarioEmail:'vendedor@example.com',telemarketing:'GERAL'});
+  for(const name of ['gestiones','citas','ventas'])await setDoc(doc(c.firestore(),name,'foreign-transaction'),{idProspecto:'foreign-parent',telemarketing:'IRENE'});
+  await setDoc(doc(c.firestore(),'prospectos','foreign-parent'),{telemarketing:'IRENE',propietarioEmail:'other@example.com'});
+ });
+ await assertSucceeds(runTransaction(db,async tx=>{
+  const g=doc(db,'gestiones','transaction-call');const p=doc(db,'prospectos','transaction-lead');
+  assert.equal((await tx.get(g)).exists(),false);await tx.get(p);
+  assert.equal((await tx.get(doc(db,'citas','transaction-cita'))).exists(),false);
+  assert.equal((await tx.get(doc(db,'ventas','transaction-sale'))).exists(),false);
+  tx.set(g,{id:'transaction-call',idProspecto:'transaction-lead',telemarketing:'GERAL',resultado:'No contesta',efectivo:'No',observacion:'',creadoPor:'telemarketing@example.com',registradoEnServidor:serverTimestamp()});
+  tx.update(p,{intentos:increment(1),contactosEfectivos:increment(0),ultimaGestionId:'transaction-call'});
+ }));
+ assert.equal((await getDoc(doc(db,'prospectos','transaction-lead'))).data()?.intentos,1);
+ for(const name of ['gestiones','citas','ventas']){
+  await assertFails(getDoc(doc(db,name,'foreign-transaction')));
+  await assertFails(getDocs(collection(db,name)));
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(),name,'missing-anonymous')));
+ }
 });

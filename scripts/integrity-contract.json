@@ -255,6 +255,8 @@
     "src/components/ClientHistory.tsx",
     "src/components/ContactActions.tsx",
     "src/components/ReminderCenter.tsx",
-    "src/components/ProductivityView.tsx"
+    "src/components/ProductivityView.tsx",
+    "src/productivity.ts",
+    "tests/productivity.test.ts"
   ]
 }

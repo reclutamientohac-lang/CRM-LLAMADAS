@@ -16,12 +16,13 @@
     "test:integrity": "node --test tests/integrity.test.mjs",
     "predev": "npm run check:integrity",
     "prebuild": "npm run verify",
-    "verify": "npm run check:integrity && npm run lint && npm test && npm run test:pipeline && npm run test:integrity && npm run test:seller && npm run test:money && npm run test:commercial",
+    "verify": "npm run check:integrity && npm run lint && npm test && npm run test:pipeline && npm run test:integrity && npm run test:seller && npm run test:money && npm run test:commercial && npm run test:productivity",
     "pretest": "npm run check:integrity",
     "test:seller": "node --import tsx --test tests/seller.test.ts",
     "test:money": "node --import tsx --test tests/money.test.ts",
     "verify:release": "npm run build && npm run test:rules",
-    "test:commercial": "node --import tsx --test tests/commercial.test.ts"
+    "test:commercial": "node --import tsx --test tests/commercial.test.ts",
+    "test:productivity": "node --import tsx --test tests/productivity.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

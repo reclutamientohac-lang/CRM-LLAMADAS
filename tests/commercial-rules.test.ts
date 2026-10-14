@@ -33,6 +33,8 @@ test('solo administrador fija metas; vendedor ve las suyas y telemarketing las d
  for(const db of [seller,agent,boss])await assertFails(saveMonthlyGoal('2026-10',entity,{...emptyGoals,llamadas:999},'seller@example.com',db));
  await assertFails(getDoc(doc(agent,'metasProductividad',id)));
  const tm={type:'Telemarketing' as const,identity:'GERAL',name:'Geral'};await saveMonthlyGoal('2026-10',tm,{...emptyGoals,citas:20},adminEmail,admin);await assertSucceeds(getDoc(doc(agent,'metasProductividad',goalId('2026-10',tm))));await assertFails(getDoc(doc(seller,'metasProductividad',goalId('2026-10',tm))));await assertSucceeds(getDoc(doc(boss,'metasProductividad',id)));
+ for(const db of [admin,boss])await assertSucceeds(getDocs(query(collection(db,'metasProductividad'),where('mes','==','2026-10'))));
+ for(const db of [seller,agent])await assertFails(getDocs(query(collection(db,'metasProductividad'),where('mes','==','2026-10'))));
 });
 test('reglas de metas rechazan cantidades fraccionarias, cifras monetarias incoherentes y cambio de identidad',async()=>{
  const ref=doc(admin,'metasProductividad',goalId('2026-10',entity));

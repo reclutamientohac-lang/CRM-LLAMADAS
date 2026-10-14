@@ -57,7 +57,7 @@ export const RegistrarLlamadaModal: React.FC<RegistrarLlamadaModalProps> = ({
   const todayLA = getTodayInLA();
   const timeNowAMPM = getCurrentTimeAMPM_LA();
   const defaultAgent =
-    telemarketingAgent ||
+    (userProfile?.role === 'Vendedor' ? prospecto.telemarketing : '') || telemarketingAgent ||
     (prospecto.telemarketing !== SIN_ASIGNAR ? prospecto.telemarketing : '') ||
     settings.telemarketingAgents[0]?.name ||
     '';

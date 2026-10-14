@@ -10,14 +10,15 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "node --import tsx --test tests/stage78.test.ts",
-    "test:rules": "firebase emulators:exec --project demo-crm-llamadas --only firestore \"node --import tsx --test tests/rules.test.ts\"",
+    "test:rules": "firebase emulators:exec --project demo-crm-llamadas --only firestore \"node --import tsx --test tests/rules.test.ts tests/seller-rules.test.ts\"",
     "test:pipeline": "node --import tsx --test tests/pipeline.test.ts",
     "check:integrity": "node scripts/check-integrity.mjs",
     "test:integrity": "node --test tests/integrity.test.mjs",
     "predev": "npm run check:integrity",
     "prebuild": "npm run verify",
-    "verify": "npm run check:integrity && npm run lint && npm test && npm run test:pipeline && npm run test:integrity",
-    "pretest": "npm run check:integrity"
+    "verify": "npm run check:integrity && npm run lint && npm test && npm run test:pipeline && npm run test:integrity && npm run test:seller",
+    "pretest": "npm run check:integrity",
+    "test:seller": "node --import tsx --test tests/seller.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

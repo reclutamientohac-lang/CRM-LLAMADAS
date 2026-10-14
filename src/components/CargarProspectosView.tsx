@@ -29,7 +29,8 @@ import { CargaMasivaExcelView } from './CargaMasivaExcelView';
 
 export const CargarProspectosView: React.FC = () => {
   const { addProspecto, settings, prospectos } = useCRM();
-  const { userProfile, isSupervisor } = useAuth();
+  const { userProfile, isSupervisor, isAdmin } = useAuth();
+  const isSeller = userProfile?.role === 'Vendedor';
 
   // Internal tab state: "Carga individual" o "Carga masiva por Excel"
   const [activeSubTab, setActiveSubTab] = useState<'individual' | 'masiva'>('individual');
@@ -38,7 +39,7 @@ export const CargarProspectosView: React.FC = () => {
 
   // Form state
   const [formData, setFormData] = useState({
-    propietario: '',
+    propietario: isSeller ? userProfile.displayName : '',
     fechaRecepcion: todayStr,
     fechaProspeccion: '',
     tipoProspecto: settings.tiposProspecto[0] || 'Personal',
@@ -142,7 +143,7 @@ export const CargarProspectosView: React.FC = () => {
 
   const handleResetForm = () => {
     setFormData({
-      propietario: '',
+      propietario: isSeller ? userProfile.displayName : '',
       fechaRecepcion: todayStr,
       fechaProspeccion: '',
       tipoProspecto: settings.tiposProspecto[0] || 'Personal',
@@ -423,7 +424,8 @@ export const CargarProspectosView: React.FC = () => {
                     <input
                       type="text"
                       name="propietario"
-                      value={formData.propietario}
+                      value={isSeller ? userProfile.displayName : formData.propietario}
+                      readOnly={isSeller}
                       onChange={handleInputChange}
                       placeholder="Ej: Roberto Gómez, Carlos Mendoza"
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-[#0D2240] focus:ring-2 focus:ring-[#0D2240]/10 outline-none text-sm transition-all"
@@ -582,12 +584,13 @@ export const CargarProspectosView: React.FC = () => {
                         Asignar a Telemarketing
                       </label>
                       <span className="text-[11px] text-slate-500">
-                        Opcional (por defecto &quot;SIN ASIGNAR&quot;)
+                        {isSeller ? 'Asignada por el administrador' : 'Opcional (SIN ASIGNAR)'}
                       </span>
                     </div>
                     <select
                       name="telemarketing"
-                      value={formData.telemarketing}
+                      value={isSeller ? userProfile.telemarketingAgent : formData.telemarketing}
+                      disabled={isSeller}
                       onChange={handleInputChange}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:border-[#0D2240] outline-none text-sm bg-white font-medium"
                     >

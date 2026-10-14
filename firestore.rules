@@ -30,34 +30,40 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/usuariosAutorizados/$(userEmail())).data;
     }
 
-    function esDistribuidor() {
-      return isEmailVerified() && existeDocAutorizado() && getDocAutorizado().activo == true && getDocAutorizado().rol == 'Distribuidor';
-    }
-
-    function esAutorizado() {
-      return esAdmin() || (isEmailVerified() && existeDocAutorizado() && getDocAutorizado().activo == true && (
-        (getDocAutorizado().rol == 'Telemarketing' && getDocAutorizado().telemarketingVinculada is string && getDocAutorizado().telemarketingVinculada.size() > 0 && getDocAutorizado().telemarketingVinculada != 'SIN ASIGNAR') ||
-        (getDocAutorizado().rol == 'Distribuidor') ||
-        (getDocAutorizado().rol == 'Supervisor')
-      ));
-    }
-
-    function rolActual() {
-      return esAdmin() ? 'Administrador' : (existeDocAutorizado() ? getDocAutorizado().rol : '');
-    }
-
-    function esSupervisor() {
-      return esAdmin() || (isEmailVerified() && existeDocAutorizado() && getDocAutorizado().activo == true && getDocAutorizado().rol == 'Supervisor');
+    function tieneRol(roles) {
+      return isEmailVerified() && existeDocAutorizado() && getDocAutorizado().get('activo', false) == true && getDocAutorizado().get('rol', '') in roles;
     }
 
     function telemarketingActual() {
-      return esAutorizado() && existeDocAutorizado() && 'telemarketingVinculada' in getDocAutorizado() ?
-        getDocAutorizado().telemarketingVinculada : '';
+      return getDocAutorizado().get('telemarketingVinculada', '');
     }
 
+    function agenteValido() {
+      return telemarketingActual() is string && telemarketingActual().size() > 0 && telemarketingActual() != 'SIN ASIGNAR';
+    }
+
+    function esDistribuidor() { return tieneRol(['Distribuidor']); }
+    function esVendedor() { return tieneRol(['Vendedor']) && agenteValido(); }
+    function esTelemarketing() { return tieneRol(['Telemarketing']) && agenteValido(); }
+    function esSupervisor() { return esAdmin() || tieneRol(['Supervisor']); }
+    function esAutorizado() { return esAdmin() || esSupervisor() || esDistribuidor() || ((tieneRol(['Telemarketing', 'Vendedor'])) && agenteValido()); }
+    function rolActual() { return esAdmin() ? 'Administrador' : getDocAutorizado().get('rol', ''); }
+    function esDueno(data) { return esVendedor() && data.get('propietarioEmail', '') == userEmail(); }
+
     function esPropietarioAsignado(data) {
-      return esAutorizado() && data.idProspecto is string &&
-        get(/databases/$(database)/documents/prospectos/$(data.idProspecto)).data.telemarketing == telemarketingActual();
+      let prospecto = get(/databases/$(database)/documents/prospectos/$(data.idProspecto)).data;
+      return (esTelemarketing() && prospecto.telemarketing == telemarketingActual()) || esDueno(prospecto);
+    }
+
+    function eventoVendedorValido(data) {
+      return !esVendedor() || (
+        (!('telemarketing' in data) || data.telemarketing == get(/databases/$(database)/documents/prospectos/$(data.idProspecto)).data.telemarketing) &&
+        (data.get('idCita', '') == '' || getAfter(/databases/$(database)/documents/citas/$(data.idCita)).data.idProspecto == data.idProspecto)
+      );
+    }
+
+    function asignacionIntacta() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['propietarioEmail', 'propietario', 'telemarketing', 'creadoPor', 'creadoEn', 'id']);
     }
 
     match /respaldos/{id} { allow read, write: if esAdmin(); }
@@ -113,39 +119,41 @@ service cloud.firestore {
 
     // Colección: logCargas
     match /logCargas/{logId} {
-      allow read, write: if esAutorizado();
+      allow read: if (esAutorizado() && !esVendedor()) || (esVendedor() && resource.data.usuario == userEmail());
+      allow create: if (esAutorizado() && !esVendedor()) || (esVendedor() && request.resource.data.usuario == userEmail());
+      allow update, delete: if esAutorizado() && !esVendedor();
     }
 
     // Colección: gestiones
     match /gestiones/{gestionId} {
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(request.resource.data);
-      allow update: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data));
+      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
+      allow update: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data) && request.resource.data.idProspecto == resource.data.idProspecto && request.resource.data.telemarketing == resource.data.telemarketing);
       allow delete: if esSupervisor();
     }
 
     // Colección: citas
     match /citas/{citaId} {
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(request.resource.data);
-      allow update: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data));
+      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
+      allow update: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(resource.data) && esPropietarioAsignado(request.resource.data) && request.resource.data.idProspecto == resource.data.idProspecto && request.resource.data.telemarketing == resource.data.telemarketing);
       allow delete: if esSupervisor();
     }
 
     // Colección: retroalimentaciones
     match /retroalimentaciones/{retroId} {
       allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
-      allow create: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(request.resource.data);
+      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data));
       allow update, delete: if esSupervisor();
     }
 
     // Colección: ventas
     match /ventas/{ventaId} {
-      allow read: if esSupervisor() || esDistribuidor() || (
-        esPropietarioAsignado(resource.data)
-      );
-      allow create: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(request.resource.data);
-      allow update: if esSupervisor();
+      allow read: if esSupervisor() || esDistribuidor() || esPropietarioAsignado(resource.data);
+      allow create: if esSupervisor() || esDistribuidor() || (esPropietarioAsignado(request.resource.data) && eventoVendedorValido(request.resource.data) && (
+        !esVendedor() || (request.resource.data.estado == 'Pendiente' && request.resource.data.montoAprobado == null && request.resource.data.bonoGenerado == null && request.resource.data.bonoPagable == 0)
+      ));
+      allow update: if esSupervisor() || (esVendedor() && esPropietarioAsignado(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['observacion', 'ultimaActualizacion']));
       allow delete: if esSupervisor();
     }
 
@@ -158,26 +166,20 @@ service cloud.firestore {
 
     // Colección: prospectos
     match /prospectos/{prospectoId} {
-      allow get: if esAutorizado() && (
-        esSupervisor() ||
-        esDistribuidor() ||
-        resource.data.telemarketing == telemarketingActual()
+      allow get, list: if esAutorizado() && (
+        esSupervisor() || esDistribuidor() || esDueno(resource.data) ||
+        (esTelemarketing() && resource.data.telemarketing == telemarketingActual())
       );
-      
-      allow list: if esAutorizado() && (
-        esSupervisor() ||
-        esDistribuidor() ||
-        resource.data.telemarketing == telemarketingActual()
-      );
-
-      allow create: if esAutorizado();
-
-      allow update: if esAutorizado() && (
-        esSupervisor() ||
-        esDistribuidor() ||
-        (resource.data.telemarketing == telemarketingActual() && request.resource.data.telemarketing == telemarketingActual())
-      );
-
+      allow create: if esAdmin() || (esAutorizado() && (!esVendedor() || (
+        request.resource.data.propietarioEmail == userEmail() &&
+        request.resource.data.propietario == getDocAutorizado().nombre &&
+        request.resource.data.telemarketing == telemarketingActual() &&
+        request.resource.data.creadoPor == userEmail()
+      )));
+      allow update: if esAdmin() || (asignacionIntacta() && (
+        esSupervisor() || esDistribuidor() || esDueno(resource.data) ||
+        (esTelemarketing() && resource.data.telemarketing == telemarketingActual())
+      ));
       allow delete: if esAdmin();
     }
 
@@ -187,3 +189,4 @@ service cloud.firestore {
     }
   }
 }
+

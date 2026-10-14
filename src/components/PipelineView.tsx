@@ -33,7 +33,7 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
   const [includeArchived, setIncludeArchived] = useState(true);
   const [limits, setLimits] = useState<Partial<Record<PipelineStage, number>>>({});
   const global = isAuthorized && (isAdmin || userProfile?.role === 'Supervisor' || userProfile?.role === 'Distribuidor');
-  const contacts = useMemo(() => isAuthorized ? buildPipeline({ prospectos, gestiones, citas, ventas, retroalimentaciones }, { global, agent: telemarketingAgent }) : [], [prospectos, gestiones, citas, ventas, retroalimentaciones, global, isAuthorized, telemarketingAgent]);
+  const contacts = useMemo(() => isAuthorized ? buildPipeline({ prospectos, gestiones, citas, ventas, retroalimentaciones }, { global: global || userProfile?.role === 'Vendedor', agent: telemarketingAgent }) : [], [prospectos, gestiones, citas, ventas, retroalimentaciones, global, isAuthorized, telemarketingAgent, userProfile?.role]);
   const agents = useMemo(() => Array.from(new Set(contacts.map(c => c.prospecto.telemarketing?.trim() || 'SIN ASIGNAR'))).sort((a, b) => a.localeCompare(b, 'es')), [contacts]);
   const owners = useMemo(() => {
     const labels = new Map<string, string>();
@@ -72,7 +72,7 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
       <label className="flex-1 min-w-48"><span className="block text-xs font-bold text-slate-600 mb-2">Buscar contacto</span><div className="relative"><Search className="absolute left-3 top-3 w-4 h-4 text-slate-400" /><input type="search" value={search} onChange={e => { setSearch(e.target.value); reset(); }} placeholder="Nombre, teléfono o propietario" className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm" /></div></label>
       {global && <label><span className="block text-xs font-bold text-slate-600 mb-2">Telemarketing</span><select value={agent} onChange={e => { setAgent(e.target.value); reset(); }} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm"><option value="">Todas las agentes</option>{agents.map(a => <option key={a} value={a}>{a}</option>)}</select></label>}
       <label><span className="block text-xs font-bold text-slate-600 mb-2">Propietario</span><select value={owner} onChange={e => { setOwner(e.target.value); reset(); }} className="max-w-64 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"><option value="">Todos los propietarios</option>{owners.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
-      {!global && <p className="text-sm font-semibold text-slate-600 py-3">Cartera: {telemarketingAgent || 'Sin asignar'}</p>}
+      {!global && <p className="text-sm font-semibold text-slate-600 py-3">Cartera: {userProfile?.role === 'Vendedor' ? userProfile.displayName : telemarketingAgent || 'Sin asignar'}</p>}
       <label className="flex items-center gap-2 text-sm text-slate-600 py-3"><input type="checkbox" checked={includeArchived} onChange={e => { setIncludeArchived(e.target.checked); reset(); }} />Incluir archivados</label>
     </div>
     <p className="text-xs text-slate-500">Citas históricas y actuales, incluidas las canceladas. Ventas aprobadas o pendientes; las ventas canceladas no cuentan como venta. Las llamadas incluyen los intentos históricos.</p>

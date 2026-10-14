@@ -166,7 +166,7 @@ export const CargaMasivaExcelView: React.FC = () => {
       setParsedRows([]);
       setCounts({ total: 0, validas: 0, advertencias: 0, duplicadas: 0, errores: 0 });
     } else {
-      setParsedRows(res.rows);
+      setParsedRows(userProfile?.role === 'Vendedor' ? res.rows.map(row => ({ ...row, propietario: userProfile.displayName, telemarketing: userProfile.telemarketingAgent || SIN_ASIGNAR })) : res.rows);
       setCounts(res.counts);
       setPage(1);
     }
@@ -637,6 +637,8 @@ export const CargaMasivaExcelView: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Telemarketing assignment rule */}
               <div className="space-y-2 md:col-span-2">
+                {userProfile?.role === 'Vendedor' && <p className="rounded-xl bg-slate-100 p-3 text-xs">Todos los contactos quedarán a tu nombre y con {userProfile.telemarketingAgent}, asignada por el administrador. Los valores de propietario y agente del archivo no cambian esa asignación.</p>}
+                <fieldset disabled={userProfile?.role === 'Vendedor'}>
                 <label className="block text-xs font-bold text-slate-700">
                   Regla para filas sin telemarketing o con agente inexistente:
                 </label>
@@ -739,6 +741,7 @@ export const CargaMasivaExcelView: React.FC = () => {
                     </div>
                   )}
                 </div>
+                </fieldset>
               </div>
 
               {/* Default owner & warning exclusion */}
@@ -749,7 +752,8 @@ export const CargaMasivaExcelView: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={importOptions.propietarioPorDefecto}
+                    value={userProfile?.role === 'Vendedor' ? userProfile.displayName : importOptions.propietarioPorDefecto}
+                    disabled={userProfile?.role === 'Vendedor'}
                     onChange={(e) =>
                       setImportOptions((p) => ({ ...p, propietarioPorDefecto: e.target.value }))
                     }

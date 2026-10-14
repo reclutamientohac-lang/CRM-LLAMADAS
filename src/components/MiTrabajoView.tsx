@@ -60,7 +60,7 @@ export const MiTrabajoView: React.FC<MiTrabajoViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   // Effective agent to filter
-  const currentAgent = isSupervisor ? selectedAgent : telemarketingAgent || '';
+  const currentAgent = userProfile?.role === 'Vendedor' ? '' : isSupervisor ? selectedAgent : telemarketingAgent || '';
 
   // Filter prospectos by assigned agent
   const agentProspectos = useMemo(() => {
@@ -190,7 +190,7 @@ export const MiTrabajoView: React.FC<MiTrabajoViewProps> = ({
             <p className="text-xs text-slate-300 mt-0.5">
               {currentAgent
                 ? `Operadora activa: ${currentAgent}`
-                : 'Todas las agentes (Vista General del Supervisor)'}
+                : userProfile?.role === 'Vendedor' ? `Tu cartera · Telemarketing asignada: ${telemarketingAgent}` : 'Todas las agentes (Vista General del Supervisor)'}
             </p>
           </div>
         </div>

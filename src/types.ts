@@ -3,7 +3,7 @@
  * Etapa 1 & 2: Arquitectura extensible para telemarketing, agendamiento de citas y carga masiva por Excel
  */
 
-export type Role = 'Administrador' | 'Supervisor' | 'Telemarketing' | 'Distribuidor';
+export type Role = 'Administrador' | 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor';
 
 export type Temperatura = 'Hot' | 'Tibio' | 'Frío' | '';
 
@@ -143,6 +143,7 @@ export interface Prospecto {
   idLote?: string; // ID del lote de carga masiva si proviene de Excel
   fechaRecepcion: string; // YYYY-MM-DD
   fechaProspeccion?: string; // YYYY-MM-DD opcional
+  propietarioEmail?: string; // Identidad de cuenta; nunca inferida por coincidencia de nombre
   propietario: string; // dueño del lead / emprendedor
   tipoCarga: TipoCarga;
   tipoProspecto: string; // configurable
@@ -184,7 +185,7 @@ export interface UserProfile {
 export interface UsuarioAutorizado {
   email: string; // ID del documento (correo en minúsculas)
   nombre: string;
-  rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor';
+  rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor';
   telemarketingVinculada?: string; // Obligatoria si el rol es Telemarketing (ej: GERAL, IRENE, MAIRUT)
   activo: boolean; // true / false
   agregadoPor: string;
@@ -257,6 +258,7 @@ export interface FilterState {
   telemarketing: string;
   estado: string;
   temperatura: string;
+  propietarioEmail?: string; // Identidad de cuenta; nunca inferida por coincidencia de nombre
   propietario: string;
   tipo: string;
   origen: string;
@@ -308,6 +310,7 @@ export type ExcelRowStatus =
 export interface ExcelRowItem {
   rowNumber: number;
   raw: Record<string, any>;
+  propietarioEmail?: string; // Identidad de cuenta; nunca inferida por coincidencia de nombre
   propietario: string;
   fechaProspeccion: string;
   tipoProspecto: string;

@@ -1,3 +1,4 @@
+import { VendedoresReport } from './VendedoresReport';
 import React, { useState, useMemo } from 'react';
 import {
   BarChart3,
@@ -191,6 +192,7 @@ export const ReporteIndividualView: React.FC<ReporteIndividualViewProps> = ({
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto print:space-y-4 print:p-0">
+      <VendedoresReport />
       {/* Estilos específicos para impresión limpia */}
       <style>{`
         @media print {

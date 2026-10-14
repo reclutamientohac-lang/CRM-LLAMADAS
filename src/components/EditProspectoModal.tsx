@@ -28,13 +28,14 @@ export const EditProspectoModal: React.FC<EditProspectoModalProps> = ({
   onClose,
   onSaved,
 }) => {
-  const { updateProspecto, settings, prospectos } = useCRM();
-  const { isSupervisor } = useAuth();
+  const { updateProspecto, settings, prospectos, usuariosAutorizados } = useCRM();
+  const { isSupervisor, isAdmin } = useAuth();
 
   const [formData, setFormData] = useState({
     nombre: prospecto.nombre,
     telefono: prospecto.telefono,
     ciudadZona: prospecto.ciudadZona || '',
+    propietarioEmail: prospecto.propietarioEmail || '',
     propietario: prospecto.propietario || '',
     tipoProspecto: prospecto.tipoProspecto || settings.tiposProspecto[0] || 'Personal',
     origen: prospecto.origen || settings.origenes[0] || 'Recomendación',
@@ -79,10 +80,11 @@ export const EditProspectoModal: React.FC<EditProspectoModalProps> = ({
         nombre: formData.nombre.trim(),
         telefono: phoneRes.normalizedPhone,
         ciudadZona: formData.ciudadZona.trim(),
-        propietario: formData.propietario.trim(),
+        ...(isAdmin ? { propietarioEmail: formData.propietarioEmail } : {}),
+        propietario: isAdmin ? formData.propietario.trim() : prospecto.propietario,
         tipoProspecto: formData.tipoProspecto,
         origen: formData.origen,
-        telemarketing: isSupervisor ? formData.telemarketing : prospecto.telemarketing,
+        telemarketing: isAdmin ? formData.telemarketing : prospecto.telemarketing,
         estado: formData.estado,
         contexto: formData.contexto.trim(),
         llamadoPorEmprendedor: formData.llamadoPorEmprendedor as 'Sí' | 'No',
@@ -180,6 +182,12 @@ export const EditProspectoModal: React.FC<EditProspectoModalProps> = ({
               />
             </div>
 
+            {isAdmin && <label className="block text-xs font-bold text-slate-700">Vincular propietario a cuenta de vendedor
+              <select aria-label="Cuenta del propietario" className="block w-full border rounded-xl p-2 mt-1" value={formData.propietarioEmail} onChange={e => { const account = usuariosAutorizados.find(u => u.email === e.target.value); setFormData(p => ({ ...p, propietarioEmail: e.target.value, propietario: account?.nombre || p.propietario, telemarketing: account?.telemarketingVinculada || p.telemarketing })); }}>
+                <option value="">Sin cuenta vinculada (histórico)</option>
+                {usuariosAutorizados.filter(u => u.rol === 'Vendedor').map(u => <option key={u.email} value={u.email}>{u.nombre} — {u.email}</option>)}
+              </select><span className="font-normal text-slate-500">La cuenta determina quién puede acceder a este prospecto.</span>
+            </label>}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
                 Propietario / Emprendedor
@@ -188,6 +196,7 @@ export const EditProspectoModal: React.FC<EditProspectoModalProps> = ({
                 type="text"
                 name="propietario"
                 value={formData.propietario}
+                readOnly={!isAdmin}
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-[#0D2240] outline-none"
               />
@@ -211,7 +220,7 @@ export const EditProspectoModal: React.FC<EditProspectoModalProps> = ({
               </select>
             </div>
 
-            {isSupervisor && (
+            {isAdmin && (
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   Telemarketing Asignada

@@ -29,7 +29,7 @@ import { UsuarioAutorizado, SolicitudAcceso, Role } from '../types';
 import { ADMIN_EMAIL, normalizeEmail, isAdminEmail, formatDateDisplay } from '../businessRules';
 
 type SubTab = 'usuarios' | 'solicitudes' | 'historial';
-type AssignableRole = 'Supervisor' | 'Telemarketing' | 'Distribuidor';
+type AssignableRole = 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor';
 
 export const AccesosView: React.FC = () => {
   const {
@@ -105,8 +105,8 @@ export const AccesosView: React.FC = () => {
       return;
     }
 
-    if (formRol === 'Telemarketing' && !formTelemarketing) {
-      setModalError('Para rol Telemarketing debes asignar a qué agente de telemarketing está vinculada.');
+    if ((formRol === 'Telemarketing' || formRol === 'Vendedor') && !formTelemarketing) {
+      setModalError('Selecciona la telemarketing que trabajará esta cuenta.');
       return;
     }
 
@@ -115,7 +115,7 @@ export const AccesosView: React.FC = () => {
       email: formEmail.trim(),
       nombre: formNombre.trim(),
       rol: formRol,
-      telemarketingVinculada: formRol === 'Telemarketing' ? formTelemarketing : '',
+      telemarketingVinculada: (formRol === 'Telemarketing' || formRol === 'Vendedor') ? formTelemarketing : '',
     });
     setIsSubmitting(false);
 
@@ -136,7 +136,7 @@ export const AccesosView: React.FC = () => {
     if (!editingUser) return;
     setModalError(null);
 
-    if (formRol === 'Telemarketing' && !formTelemarketing) {
+    if ((formRol === 'Telemarketing' || formRol === 'Vendedor') && !formTelemarketing) {
       setModalError('Debes seleccionar una telemarketing vinculada para este rol.');
       return;
     }
@@ -145,7 +145,7 @@ export const AccesosView: React.FC = () => {
     const res = await actualizarUsuarioAutorizado(editingUser.email, {
       nombre: formNombre.trim() || editingUser.nombre,
       rol: formRol,
-      telemarketingVinculada: formRol === 'Telemarketing' ? formTelemarketing : '',
+      telemarketingVinculada: (formRol === 'Telemarketing' || formRol === 'Vendedor') ? formTelemarketing : '',
     });
     setIsSubmitting(false);
 
@@ -163,7 +163,7 @@ export const AccesosView: React.FC = () => {
     if (!approvingSolicitud) return;
     setModalError(null);
 
-    if (formRol === 'Telemarketing' && !formTelemarketing) {
+    if ((formRol === 'Telemarketing' || formRol === 'Vendedor') && !formTelemarketing) {
       setModalError('Debes seleccionar la telemarketing vinculada para este rol.');
       return;
     }
@@ -171,7 +171,7 @@ export const AccesosView: React.FC = () => {
     setIsSubmitting(true);
     const res = await aprobarSolicitudAcceso(approvingSolicitud, {
       rol: formRol,
-      telemarketingVinculada: formRol === 'Telemarketing' ? formTelemarketing : '',
+      telemarketingVinculada: (formRol === 'Telemarketing' || formRol === 'Vendedor') ? formTelemarketing : '',
     });
     setIsSubmitting(false);
 
@@ -496,7 +496,7 @@ export const AccesosView: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 font-semibold text-slate-700">
-                          {u.rol === 'Telemarketing' ? (
+                          {(u.rol === 'Telemarketing' || u.rol === 'Vendedor') ? (
                             <span className="px-2 py-0.5 bg-slate-100 rounded-lg text-slate-800 font-mono text-[11px]">
                               {u.telemarketingVinculada || 'Sin vincular'}
                             </span>
@@ -784,6 +784,7 @@ export const AccesosView: React.FC = () => {
                   onChange={(e) => setFormRol(e.target.value as AssignableRole)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
+                  <option value="Vendedor">Vendedor (Cartera propia y telemarketing asignada)</option>
                   <option value="Telemarketing">Telemarketing (Atención y registro de llamadas)</option>
                   <option value="Distribuidor">Distribuidor (Prospectos, Cargar, Agenda, Dashboard e Individual)</option>
                   <option value="Supervisor">Supervisor (Acceso completo de supervisión)</option>
@@ -795,7 +796,7 @@ export const AccesosView: React.FC = () => {
                 )}
               </div>
 
-              {formRol === 'Telemarketing' && (
+              {(formRol === 'Telemarketing' || formRol === 'Vendedor') && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Telemarketing Vinculada <span className="text-rose-500">*</span>
@@ -892,6 +893,7 @@ export const AccesosView: React.FC = () => {
                   onChange={(e) => setFormRol(e.target.value as AssignableRole)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
+                  <option value="Vendedor">Vendedor (Cartera propia y telemarketing asignada)</option>
                   <option value="Telemarketing">Telemarketing (Atención y llamadas)</option>
                   <option value="Distribuidor">Distribuidor (Prospectos, Cargar, Agenda, Dashboard e Individual)</option>
                   <option value="Supervisor">Supervisor</option>
@@ -903,7 +905,7 @@ export const AccesosView: React.FC = () => {
                 )}
               </div>
 
-              {formRol === 'Telemarketing' && (
+              {(formRol === 'Telemarketing' || formRol === 'Vendedor') && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Telemarketing Vinculada
@@ -985,6 +987,7 @@ export const AccesosView: React.FC = () => {
                   onChange={(e) => setFormRol(e.target.value as AssignableRole)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs text-slate-800 font-bold outline-none focus:bg-white focus:border-[#0D2240]"
                 >
+                  <option value="Vendedor">Vendedor (Cartera propia y telemarketing asignada)</option>
                   <option value="Telemarketing">Telemarketing (Atención y llamadas)</option>
                   <option value="Distribuidor">Distribuidor (Prospectos, Cargar, Agenda, Dashboard e Individual)</option>
                   <option value="Supervisor">Supervisor</option>
@@ -996,7 +999,7 @@ export const AccesosView: React.FC = () => {
                 )}
               </div>
 
-              {formRol === 'Telemarketing' && (
+              {(formRol === 'Telemarketing' || formRol === 'Vendedor') && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Telemarketing Vinculada <span className="text-rose-500">*</span>

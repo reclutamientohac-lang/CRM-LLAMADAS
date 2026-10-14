@@ -21,6 +21,7 @@ export function canAccessTab(tab: TabId, role?: Role | string, isAdmin = false):
   if (isAdmin || role === 'Administrador' || role === 'Supervisor') {
     return true;
   }
+  if (role === 'Vendedor') return TELEMARKETING_TABS.includes(tab);
   if (role === 'Distribuidor') {
     return DISTRIBUIDOR_TABS.includes(tab);
   }

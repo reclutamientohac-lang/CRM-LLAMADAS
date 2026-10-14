@@ -1,3 +1,4 @@
+import { sellerDefaults, sellerUpdateAllowed, ownsProspect, ownerEmail } from '../sellerPolicy';
 import { subscribeCRMRecords } from '../stage78/scopedSubscription';
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import {
@@ -110,7 +111,7 @@ interface CRMContextType {
   agregarUsuarioAutorizado: (datos: {
     email: string;
     nombre: string;
-    rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor';
+    rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor';
     telemarketingVinculada?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   actualizarUsuarioAutorizado: (
@@ -124,7 +125,7 @@ interface CRMContextType {
   eliminarUsuarioAutorizado: (email: string) => Promise<{ success: boolean; error?: string }>;
   aprobarSolicitudAcceso: (
     solicitud: SolicitudAcceso,
-    config: { rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor'; telemarketingVinculada?: string }
+    config: { rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor'; telemarketingVinculada?: string }
   ) => Promise<{ success: boolean; error?: string }>;
   rechazarSolicitudAcceso: (solicitud: SolicitudAcceso) => Promise<{ success: boolean; error?: string }>;
   registrarResultadoCita: (
@@ -248,13 +249,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [error, setError] = useState<string | null>(null);
   const assignedProspectIds = useMemo(() => {
     const target = (userProfile?.telemarketingAgent || '').trim().toUpperCase();
+    if (userProfile?.role === 'Vendedor') return prospectos.filter(p => ownsProspect(userProfile, p)).map(p => p.id).sort().join('|');
     if (!target) return '';
     return prospectos
       .filter((p) => (p.telemarketing || '').trim().toUpperCase() === target)
       .map((p) => p.id)
       .sort()
       .join('|');
-  }, [prospectos, userProfile?.telemarketingAgent]);
+  }, [prospectos, userProfile?.telemarketingAgent, userProfile?.email, userProfile?.role]);
 
   // Helper para registrar auditoría de accesos
   const registrarLogAcceso = async (
@@ -506,7 +508,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Supervisor, Administrador y Distribuidor ven todos los prospectos
     // Telemarketing solo ve los asignados a su nombre de agente
     let q = query(prospectosColRef);
-    if (!isSupervisor && userProfile?.role !== 'Distribuidor') {
+    if (userProfile?.role === 'Vendedor') {
+      q = query(prospectosColRef, where('propietarioEmail', '==', ownerEmail(userProfile.email)));
+    } else if (!isSupervisor && userProfile?.role !== 'Distribuidor') {
       q = query(prospectosColRef, where('telemarketing', '==', userProfile?.telemarketingAgent || '__SIN_VINCULO__'));
     }
 
@@ -558,7 +562,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     return () => unsub();
-  }, [user, isAuthorized, isSupervisor, userProfile?.telemarketingAgent, userProfile?.role]);
+  }, [user, isAuthorized, isSupervisor, userProfile?.telemarketingAgent, userProfile?.role, userProfile?.email]);
 
   // Agregar un prospecto nuevo aplicando las 4 reglas oficiales de teléfono
   const addProspecto = async (
@@ -584,6 +588,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       idLote?: string;
     }
   ) => {
+    if (!isAuthorized || !userProfile) return { success: false, error: 'Sesión autorizada requerida.' };
+    if (userProfile.role === 'Vendedor') {
+      try { data = { ...data, ...sellerDefaults(userProfile) }; } catch (e) { return { success: false, error: String(e) }; }
+    }
     // 1. Validar y normalizar teléfono con las 4 reglas de negocio
     const phoneRes = validateAndNormalizePhone(data.telefono, prospectos);
     if (!phoneRes.isValid) {
@@ -593,7 +601,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 2. Validación defensiva en Firestore completo
     try {
-      const dupQuery = query(collection(db, 'prospectos'), where('telefono', '==', normalizedPhone));
+      const dupQuery = query(collection(db, 'prospectos'), where('telefono', '==', normalizedPhone), ...(userProfile?.role === 'Vendedor' ? [where('propietarioEmail', '==', ownerEmail(userProfile.email))] : []));
       const dupSnap = await getDocs(dupQuery);
       if (!dupSnap.empty) {
         const remoteDup = dupSnap.docs[0].data() as Prospecto;
@@ -624,13 +632,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // 6. Generar ID PROS-aaaammddhhmmss-xxxx
     const id = generateProspectoId();
     const nowIso = new Date().toISOString();
-    const userIdentifier = user?.email || userProfile?.displayName || 'Sistema';
+    const userIdentifier = userProfile?.role === 'Vendedor' ? ownerEmail(userProfile.email) : user?.email || userProfile?.displayName || 'Sistema';
 
     const newProspecto: Prospecto = {
       id,
-      idLote: data.idLote || undefined,
+      ...(data.idLote ? { idLote: data.idLote } : {}),
       fechaRecepcion,
       fechaProspeccion: data.fechaProspeccion || '',
+      propietarioEmail: ownerEmail(data.propietarioEmail),
       propietario: (data.propietario || '').trim(),
       tipoCarga: data.tipoCarga || 'Manual',
       tipoProspecto: (data.tipoProspecto || 'Personal').trim(),
@@ -669,6 +678,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Actualizar prospecto
   const updateProspecto = async (id: string, updates: Partial<Prospecto>) => {
     try {
+      const existing = prospectos.find(p => p.id === id);
+      if (!isAuthorized || !existing) return { success: false, error: 'Prospecto no disponible.' };
+      if (!isAdmin && !sellerUpdateAllowed(existing, updates)) return { success: false, error: 'Solo el administrador puede cambiar el propietario o la telemarketing.' };
+      if (userProfile?.role === 'Vendedor' && !ownsProspect(userProfile, existing)) return { success: false, error: 'El prospecto no pertenece a tu cartera.' };
       // Si se actualiza el teléfono, aplicar las 4 reglas oficiales
       if (updates.telefono !== undefined) {
         const phoneRes = validateAndNormalizePhone(updates.telefono, prospectos, id);
@@ -683,7 +696,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updates.temperatura = calculateTemperature(updates.fechaRecepcion);
       }
 
-      const userIdentifier = user?.email || userProfile?.displayName || 'Sistema';
+      const userIdentifier = userProfile?.role === 'Vendedor' ? ownerEmail(userProfile.email) : user?.email || userProfile?.displayName || 'Sistema';
       const payload = {
         ...updates,
         modificadoEn: new Date().toISOString(),
@@ -722,6 +735,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Reasignación masiva o individual de telemarketing
   const reassignTelemarketingBulk = async (ids: string[], newAgent: string) => {
+    if (!isAdmin) return { success: false, count: 0, error: 'Solo el administrador puede cambiar la telemarketing.' };
     if (!ids || ids.length === 0) {
       return { success: false, error: 'No se seleccionaron prospectos para reasignar.' };
     }
@@ -886,7 +900,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         role,
-        telemarketingAgent: role === 'Telemarketing' ? telemarketingAgent : '',
+        telemarketingAgent: (role === 'Telemarketing' || role === 'Vendedor') ? telemarketingAgent : '',
         updatedAt: new Date().toISOString(),
       });
       return { success: true };
@@ -985,6 +999,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         archivado: false,
       };
 
+      if (userProfile?.role === 'Vendedor') Object.assign(lead, sellerDefaults(userProfile));
       prospectosToSave.push(lead);
     });
 
@@ -1237,6 +1252,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const nowISO = new Date().toISOString();
       const nowLA = formatDateTimeLA(new Date());
+      if (userProfile?.role === 'Vendedor') {
+        if (!ownsProspect(userProfile, prospecto)) return { success: false, error: 'El prospecto no pertenece a tu cartera.' };
+        gestionData = { ...gestionData, telemarketing: prospecto.telemarketing };
+      }
       const fechaHoraGestion = gestionData.fechaHora || nowLA;
 
       const esEfectivoBool = isContactoEfectivo(gestionData.resultado);
@@ -1820,10 +1839,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const agregarUsuarioAutorizado = async (datos: {
     email: string;
     nombre: string;
-    rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor';
+    rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor';
     telemarketingVinculada?: string;
   }): Promise<{ success: boolean; error?: string }> => {
     try {
+      if (!isAdmin) return { success: false, error: 'Solo el administrador puede configurar usuarios.' };
       const emailNorm = normalizeEmail(datos.email);
       if (!emailNorm || !emailNorm.includes('@')) {
         return { success: false, error: 'Ingresa un correo electrónico válido.' };
@@ -1834,7 +1854,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (usuariosAutorizados.some((u) => u.email === emailNorm)) {
         return { success: false, error: 'Este correo ya se encuentra en la lista de usuarios autorizados.' };
       }
-      if (datos.rol === 'Telemarketing' && !datos.telemarketingVinculada?.trim()) {
+      if ((datos.rol === 'Telemarketing' || datos.rol === 'Vendedor') && !datos.telemarketingVinculada?.trim()) {
         return { success: false, error: 'Debes seleccionar una telemarketing vinculada para este rol.' };
       }
 
@@ -1843,7 +1863,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: emailNorm,
         nombre: datos.nombre.trim() || emailNorm.split('@')[0],
         rol: datos.rol,
-        telemarketingVinculada: datos.rol === 'Telemarketing' ? (datos.telemarketingVinculada || '') : '',
+        telemarketingVinculada: (datos.rol === 'Telemarketing' || datos.rol === 'Vendedor') ? (datos.telemarketingVinculada || '') : '',
         activo: true,
         agregadoPor: user?.email || 'Administrador',
         fechaAlta: nowLA,
@@ -1856,7 +1876,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await registrarLogAcceso(
         'ALTA',
         emailNorm,
-        `Usuario dado de alta con rol ${datos.rol}${datos.rol === 'Telemarketing' ? ` (${datos.telemarketingVinculada})` : ''}`
+        `Usuario dado de alta con rol ${datos.rol}${(datos.rol === 'Telemarketing' || datos.rol === 'Vendedor') ? ` (${datos.telemarketingVinculada})` : ''}`
       );
 
       return { success: true };
@@ -1873,6 +1893,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updates: Partial<UsuarioAutorizado>
   ): Promise<{ success: boolean; error?: string }> => {
     try {
+      if (!isAdmin) return { success: false, error: 'Solo el administrador puede configurar usuarios.' };
+      const prior = usuariosAutorizados.find(u => u.email === normalizeEmail(email));
+      const next = { ...prior, ...updates };
+      if (['Telemarketing', 'Vendedor'].includes(next.rol || '') && (!next.telemarketingVinculada?.trim() || next.telemarketingVinculada === SIN_ASIGNAR)) return { success: false, error: 'Selecciona una telemarketing para esta cuenta.' };
       const emailNorm = normalizeEmail(email);
       if (isAdminEmail(emailNorm)) {
         return { success: false, error: 'No se puede modificar la cuenta del administrador.' };
@@ -1952,7 +1976,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // 5. Aprobar solicitud de acceso
   const aprobarSolicitudAcceso = async (
     solicitud: SolicitudAcceso,
-    config: { rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor'; telemarketingVinculada?: string }
+    config: { rol: 'Supervisor' | 'Telemarketing' | 'Distribuidor' | 'Vendedor'; telemarketingVinculada?: string }
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       const emailNorm = normalizeEmail(solicitud.email);
@@ -1965,7 +1989,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: emailNorm,
         nombre: solicitud.nombre || emailNorm.split('@')[0],
         rol: config.rol,
-        telemarketingVinculada: config.rol === 'Telemarketing' ? (config.telemarketingVinculada || '') : '',
+        telemarketingVinculada: (config.rol === 'Telemarketing' || config.rol === 'Vendedor') ? (config.telemarketingVinculada || '') : '',
         activo: true,
         agregadoPor: user?.email || 'Administrador',
         fechaAlta: nowLA,
@@ -1987,7 +2011,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await registrarLogAcceso(
         'APROBAR_SOLICITUD',
         emailNorm,
-        `Solicitud aprobada con rol ${config.rol}${config.rol === 'Telemarketing' ? ` (${config.telemarketingVinculada})` : ''}`
+        `Solicitud aprobada con rol ${config.rol}${(config.rol === 'Telemarketing' || config.rol === 'Vendedor') ? ` (${config.telemarketingVinculada})` : ''}`
       );
 
       return { success: true };

@@ -129,6 +129,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
 
   // Lista base según rol (supervisor y distribuidor ven todas las citas; telemarketing solo ve las suyas)
   const baseCitas = useMemo(() => {
+    if (userProfile?.role === 'Vendedor') return citas;
     if (isSupervisor || isDistribuidor || userProfile?.role === 'Distribuidor' || userProfile?.role === 'Supervisor') {
       return citas;
     }

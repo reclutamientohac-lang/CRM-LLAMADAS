@@ -64,7 +64,7 @@ export const ProspectosView: React.FC = () => {
     reassignTelemarketingBulk,
     archiveProspecto,
   } = useCRM();
-  const { isSupervisor } = useAuth();
+  const { isAdmin: isSupervisor } = useAuth();
 
   // Filters & Search
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);

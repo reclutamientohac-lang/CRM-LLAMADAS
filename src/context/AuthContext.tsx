@@ -135,7 +135,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const data = docSnap.data();
             const rol = data.rol as Role;
             const isRoleValid =
-              (rol === 'Telemarketing' && typeof data.telemarketingVinculada === 'string' && data.telemarketingVinculada.trim() !== '' && data.telemarketingVinculada !== 'SIN ASIGNAR') ||
+              ((rol === 'Telemarketing' || rol === 'Vendedor') && typeof data.telemarketingVinculada === 'string' && data.telemarketingVinculada.trim() !== '' && data.telemarketingVinculada !== 'SIN ASIGNAR') ||
               (rol === 'Distribuidor') ||
               (rol === 'Supervisor');
 
@@ -143,7 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             if (activo) {
               const role: Role = rol || 'Telemarketing';
-              const agent: string = role === 'Telemarketing' ? (data.telemarketingVinculada || '') : '';
+              const agent: string = (role === 'Telemarketing' || role === 'Vendedor') ? (data.telemarketingVinculada || '') : '';
 
               const profile: UserProfile = {
                 uid: currentUser.uid,

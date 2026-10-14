@@ -57,7 +57,7 @@ export const ProspectoDetailDrawer: React.FC<ProspectoDetailDrawerProps> = ({
   onOpenCitaDetail,
 }) => {
   const { archiveProspecto, updateProspecto, settings, gestiones, citas } = useCRM();
-  const { isSupervisor } = useAuth();
+  const { isSupervisor, isAdmin } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'info' | 'gestiones' | 'historial'>('info');
   const [copiedPhone, setCopiedPhone] = useState(false);
@@ -249,14 +249,14 @@ export const ProspectoDetailDrawer: React.FC<ProspectoDetailDrawerProps> = ({
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                     Telemarketing Asignada
                   </span>
-                  {isSupervisor && (
+                  {isAdmin && (
                     <span className="text-[11px] text-[#B8922A] font-semibold">
-                      Editable por supervisor
+                      Editable por administrador
                     </span>
                   )}
                 </div>
 
-                {isSupervisor ? (
+                {isAdmin ? (
                   <div className="flex items-center gap-2">
                     <select
                       value={prospecto.telemarketing}

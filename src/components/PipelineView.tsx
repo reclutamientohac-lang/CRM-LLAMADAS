@@ -76,21 +76,21 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
       <label className="flex items-center gap-2 text-sm text-slate-600 py-3"><input type="checkbox" checked={includeArchived} onChange={e => { setIncludeArchived(e.target.checked); reset(); }} />Incluir archivados</label>
     </div>
     <p className="text-xs text-slate-500">Citas históricas y actuales, incluidas las canceladas. Ventas aprobadas o pendientes; las ventas canceladas no cuentan como venta. Las llamadas incluyen los intentos históricos.</p>
-    <div className="overflow-x-auto pb-4" aria-label="Etapas del pipeline">
-      <div className="grid grid-cols-6 gap-4" style={{ minWidth: 1200 }}>
+    <div className="w-full min-w-0 pb-3" aria-label="Etapas del pipeline">
+      <div className="grid w-full min-w-0 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         {groups.map(group => {
           const limit = limits[group.id] || 10;
-          return <section key={group.id} aria-label={group.label} className="rounded-2xl border border-slate-200 bg-slate-100/70 overflow-hidden">
-            <div className="p-4 min-h-36 text-white border-t-4 border-b border-white/10" style={{ backgroundColor: PIPELINE_HEADER_COLORS[group.id], borderTopColor: group.color }}>
-              <h2 className="font-bold text-white text-sm">{group.label}</h2><div className="flex items-end justify-between mt-3"><span className="text-3xl font-extrabold text-white">{group.rows.length.toLocaleString('es')}</span><span className="text-xs font-semibold text-white bg-white/15 rounded-full px-2 py-1">{total ? (100 * group.rows.length / total).toFixed(1) : '0'}%</span></div><p className="text-xs text-white/90 mt-2">{group.description}</p>
+          return <section key={group.id} aria-label={group.label} className="min-w-0 rounded-xl border border-slate-200 bg-slate-100/70 overflow-hidden">
+            <div className="p-3 min-h-32 text-white border-t-4 border-b border-white/10" style={{ backgroundColor: PIPELINE_HEADER_COLORS[group.id], borderTopColor: group.color }}>
+              <h2 className="min-h-8 font-bold text-white text-xs break-words">{group.label}</h2><div className="flex flex-wrap items-end justify-between gap-1 mt-2"><span className="text-2xl font-extrabold text-white">{group.rows.length.toLocaleString('es')}</span><span className="text-[11px] font-semibold text-white bg-white/15 rounded-full px-1.5 py-0.5">{total ? (100 * group.rows.length / total).toFixed(1) : '0'}%</span></div><p className="text-[11px] leading-snug text-white/90 mt-2 break-words">{group.description}</p>
             </div>
-            <div className="p-3 space-y-3">
-              {group.rows.slice(0, limit).map(row => <button key={row.prospecto.id} onClick={() => onOpenProspecto(row.prospecto)} aria-label={`Abrir ficha de ${row.prospecto.nombre}`} className="w-full text-left bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-[#B8922A] hover:shadow-md focus-visible:outline-2 focus-visible:outline-[#B8922A] transition">
-                <div className="flex justify-between gap-2"><span className="font-bold text-sm text-[#0D2240] break-words">{row.prospecto.nombre}</span><ArrowUpRight className="w-4 h-4 text-slate-400 shrink-0" /></div>
-                <p className="text-xs text-slate-500 mt-1">{row.prospecto.telefono || 'Sin teléfono'}</p>
-                <p className="flex items-center gap-1 text-xs text-slate-600 mt-3"><Users className="w-3 h-3" />{row.prospecto.telemarketing || 'SIN ASIGNAR'}</p>
-                <p className="text-xs text-slate-500 mt-1 break-words">Propietario: {row.prospecto.propietario?.trim() || 'Sin propietario'}</p>
-                <div className="flex flex-wrap gap-2 mt-3 text-xs text-slate-500">
+            <div className="p-2 space-y-2">
+              {group.rows.slice(0, limit).map(row => <button key={row.prospecto.id} onClick={() => onOpenProspecto(row.prospecto)} aria-label={`Abrir ficha de ${row.prospecto.nombre}`} style={{ overflowWrap: 'anywhere' }} className="w-full min-w-0 text-left bg-white border border-slate-200 rounded-lg p-3 shadow-sm hover:border-[#B8922A] hover:shadow-md focus-visible:outline-2 focus-visible:outline-[#B8922A] transition">
+                <div className="flex min-w-0 justify-between gap-1"><span className="min-w-0 font-bold text-xs leading-snug text-[#0D2240] break-words">{row.prospecto.nombre}</span><ArrowUpRight className="w-4 h-4 text-slate-400 shrink-0" /></div>
+                <p className="text-[11px] text-slate-500 mt-1 break-words">{row.prospecto.telefono || 'Sin teléfono'}</p>
+                <p className="flex items-center gap-1 text-[11px] text-slate-600 mt-2 break-words"><Users className="w-3 h-3" />{row.prospecto.telemarketing || 'SIN ASIGNAR'}</p>
+                <p className="text-[11px] leading-snug text-slate-500 mt-1 break-words">Propietario: {row.prospecto.propietario?.trim() || 'Sin propietario'}</p>
+                <div className="flex flex-wrap gap-2 mt-2 text-[11px] text-slate-500">
                   <span className="inline-flex items-center gap-1" title={`${row.llamadas} llamadas`} aria-label={`${row.llamadas} llamadas`}><Phone className="w-3 h-3" />{row.llamadas}</span>
                   <span className="inline-flex items-center gap-1" title={`${row.citas} citas`} aria-label={`${row.citas} citas`}><Calendar className="w-3 h-3" />{row.citas}</span>
                   <span className="inline-flex items-center gap-1" title={`${row.ventas} ventas`} aria-label={`${row.ventas} ventas`}><Award className="w-3 h-3" />{row.ventas}</span>

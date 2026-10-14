@@ -1825,7 +1825,7 @@ export function calculateReporteIndividual({
 
 
 // ETAPAS 7 y 8. Las definiciones de cálculo y atribución viven aquí.
-export const BACKUP_COLLECTIONS = ['prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','usuariosAutorizados','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','respaldos','logRestauraciones','auditoria','logAsignaciones'] as const;
+export const BACKUP_COLLECTIONS = ['prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','usuariosAutorizados','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','respaldos','logRestauraciones','auditoria','logAsignaciones','historialCliente','metasProductividad'] as const;
 export const PERSONAL_DATA_WARNING = 'Este archivo contiene datos personales de prospectos. Guárdalo en un lugar seguro y no lo compartas por canales públicos';
 export function normalizeOwner(value: string): string { return (value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toLowerCase() || 'sin propietario'; }
 export function ownerLabel(value:string):string { return (value || '').trim().replace(/\s+/g,' ') || 'Sin propietario'; }

@@ -8,3 +8,5 @@ Antes de activar con datos reales, publica las reglas y el índice en la base co
 
 
 Las correcciones de seguridad y su activación están en [SEGURIDAD_20261014.md](SEGURIDAD_20261014.md). Antes de desplegar ejecuta `npm run verify:release` con Java 21. La compilación local no publica reglas ni modifica datos.
+
+Las funciones de seguimiento, historial, metas y móvil se describen en [MEJORAS_COMERCIALES.md](MEJORAS_COMERCIALES.md). Requieren publicar también las reglas de las nuevas colecciones.

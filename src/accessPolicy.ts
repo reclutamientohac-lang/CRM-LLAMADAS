@@ -2,7 +2,7 @@ import type { TabId, Role } from './types';
 
 export const TELEMARKETING_TABS: readonly TabId[] = [
   'trabajo',
-  'prospectos', 'pipeline',
+  'prospectos', 'pipeline', 'productividad',
   'cargar',
   'agenda',
   'dashboard',
@@ -10,7 +10,7 @@ export const TELEMARKETING_TABS: readonly TabId[] = [
 ];
 
 export const DISTRIBUIDOR_TABS: readonly TabId[] = [
-  'prospectos', 'pipeline',
+  'prospectos', 'pipeline', 'productividad',
   'cargar',
   'agenda',
   'dashboard',

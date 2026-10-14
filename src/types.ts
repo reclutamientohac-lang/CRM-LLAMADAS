@@ -247,6 +247,7 @@ export type TabId =
   | 'trabajo'
   | 'prospectos'
   | 'pipeline'
+  | 'productividad'
   | 'cargar'
   | 'agenda'
   | 'accesos'

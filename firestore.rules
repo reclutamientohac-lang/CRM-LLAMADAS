@@ -153,7 +153,7 @@ service cloud.firestore {
     }
     // Extensión explícita del registro. Solo colecciones nuevas; las existentes conservan sus reglas.
     match /{collectionName}/{id} {
-      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones','telefonosUnicos']);
+      allow read, write: if esAdmin() && exists(/databases/$(database)/documents/settings/backupRegistry) && collectionName in get(/databases/$(database)/documents/settings/backupRegistry).data.collections && !(collectionName in ['usuariosAutorizados','respaldos','logRestauraciones','auditoria','prospectos','gestiones','citas','retroalimentaciones','ventas','logVentas','logCargas','solicitudesAcceso','logAccesos','reportesGuardados','settings','users','logAsignaciones','telefonosUnicos','historialCliente','metasProductividad']);
     }
 
     // Colección: usuariosAutorizados
@@ -271,6 +271,44 @@ service cloud.firestore {
         (esTelemarketing() && resource.data.telemarketing == telemarketingActual())
       ));
       allow delete: if esAdmin();
+    }
+
+    // Notas y documentos: solo cartera autorizada, autor real y hora del servidor.
+    match /historialCliente/{entryId} {
+      allow get: if esAutorizado() && !exists(/databases/$(database)/documents/historialCliente/$(entryId));
+      allow read: if alcance(resource.data);
+      allow create: if (esAdmin() && request.resource.data.get('origen','') == 'Restauración histórica' && request.resource.data.restauradoEn == request.time && getAfter(/databases/$(database)/documents/logRestauraciones/$(request.resource.data.restauracionId)).data.usuario == userEmail()) || (request.resource.data.keys().hasOnly(['idProspecto','tipo','texto','titulo','url','creadoPor','creadoEn']) &&
+        request.resource.data.idProspecto is string && request.resource.data.idProspecto.size() > 0 &&
+        exists(/databases/$(database)/documents/prospectos/$(request.resource.data.idProspecto)) &&
+        request.resource.data.creadoPor == userEmail() && request.resource.data.creadoEn == request.time &&
+        texto(request.resource.data,'texto',5000) && texto(request.resource.data,'titulo',200) && texto(request.resource.data,'url',2000) &&
+        ((request.resource.data.tipo == 'Nota' && request.resource.data.texto.size() > 0 && request.resource.data.url == '' && request.resource.data.titulo == '') ||
+        (request.resource.data.tipo == 'Documento' && request.resource.data.titulo.size() > 0 && request.resource.data.url.matches('^https://[^@/ ]+(/[^ ]*)?$'))) && alcance(request.resource.data));
+      allow update, delete: if false;
+    }
+    function puedeVerMeta(data) {
+      return esSupervisor() || esDistribuidor() ||
+        (esVendedor() && data.tipo == 'Vendedor' && data.identidad == userEmail()) ||
+        (esTelemarketing() && data.tipo == 'Telemarketing' && data.identidad == telemarketingActual());
+    }
+    function metaValida(data) {
+      return data.keys().hasOnly(['mes','tipo','identidad','ingresados','llamadas','citas','ventas','volumen','volumenCentavos','actualizadoPor','actualizadoEn']) &&
+        data.mes is string && data.mes.matches('^[0-9]{4}-(0[1-9]|1[0-2])$') &&
+        data.tipo in ['Vendedor','Telemarketing'] && texto(data,'identidad',300) && data.identidad.size() > 0 &&
+        data.ingresados is int && data.ingresados >= 0 && data.ingresados <= 1000000000 &&
+        data.llamadas is int && data.llamadas >= 0 && data.llamadas <= 1000000000 &&
+        data.citas is int && data.citas >= 0 && data.citas <= 1000000000 &&
+        data.ventas is int && data.ventas >= 0 && data.ventas <= 1000000000 &&
+        data.volumenCentavos is int && data.volumenCentavos >= 0 && data.volumenCentavos <= 1000000000 && data.volumen == data.volumenCentavos / 100.0 &&
+        data.actualizadoPor == userEmail() && data.actualizadoEn == request.time;
+    }
+    match /metasProductividad/{goalId} {
+      allow get: if esAutorizado() && !exists(/databases/$(database)/documents/metasProductividad/$(goalId));
+      allow read: if puedeVerMeta(resource.data);
+      allow create: if esAdmin() && metaValida(request.resource.data);
+      allow update: if esAdmin() && metaValida(request.resource.data) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['mes','tipo','identidad']);
+      allow delete: if false;
     }
 
     // Colección legacy: users

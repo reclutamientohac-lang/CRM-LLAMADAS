@@ -48,6 +48,10 @@
     {
       "tab": "configuracion",
       "component": "ConfiguracionView"
+    },
+    {
+      "tab": "productividad",
+      "component": "ProductivityView"
     }
   ],
   "contexts": {
@@ -245,6 +249,12 @@
     "src/stage78/style.css",
     "src/stage78/types.ts",
     "src/stage78/ui.tsx",
-    "src/types.ts"
+    "src/types.ts",
+    "src/commercial.ts",
+    "src/clientActivityService.ts",
+    "src/components/ClientHistory.tsx",
+    "src/components/ContactActions.tsx",
+    "src/components/ReminderCenter.tsx",
+    "src/components/ProductivityView.tsx"
   ]
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Users,
+  Target,
   Columns3,
   UserPlus,
   Settings,
@@ -60,6 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: seguimientosCount > 0 ? seguimientosCount : undefined,
     },
     { id: 'pipeline', label: 'Pipeline', icon: Columns3, activeInStage1: true },
+    { id: 'productividad', label: 'Productividad y metas', icon: Target, activeInStage1: true },
     {
       id: 'prospectos',
       label: 'Prospectos',

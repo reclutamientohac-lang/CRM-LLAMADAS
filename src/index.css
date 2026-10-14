@@ -1,3 +1,11 @@
 @import "tailwindcss";
 
 @media print { *, *::before, *::after { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+
+@media (max-width: 639px) {
+  input, select, textarea { font-size: 16px; }
+  .crm-main { min-width: 0; padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .contact-actions a, .contact-actions button { min-height: 44px; }
+  [role="dialog"] { max-height: 100dvh; padding-bottom: env(safe-area-inset-bottom); }
+}
+@media print { .contact-actions { display: none !important; } }

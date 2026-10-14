@@ -1,3 +1,5 @@
+import { ReminderCenter } from './components/ReminderCenter';
+import { ProductivityView } from './components/ProductivityView';
 import { PipelineView } from './components/PipelineView';
 import { canAccessTab, getDefaultTabForRole } from './accessPolicy';
 import './stage78/style.css';
@@ -41,7 +43,7 @@ function MainLayout() {
     isAuthorized,
     telemarketingAgent,
   } = useAuth();
-  const { prospectos, citas } = useCRM();
+  const { prospectos, citas, loading: crmLoading } = useCRM();
 
   const [currentTab, setCurrentTab] = useState<TabId>('trabajo');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -53,6 +55,8 @@ function MainLayout() {
   const [editingProspecto, setEditingProspecto] = useState<Prospecto | null>(null);
   const [selectedCitaDetail, setSelectedCitaDetail] = useState<Cita | null>(null);
   const [modalResultadoCita, setModalResultadoCita] = useState<Cita | null>(null);
+
+  useEffect(()=>{if(!crmLoading&&drawerProspecto){const live=prospectos.find(p=>p.id===drawerProspecto.id);if(!live)setDrawerProspecto(null);else if(live!==drawerProspecto)setDrawerProspecto(live);}},[prospectos,crmLoading,drawerProspecto]);
 
   // Test server connection on boot
   useEffect(() => {
@@ -137,6 +141,8 @@ function MainLayout() {
     switch (tab) {
       case 'trabajo':
         return 'Mi Trabajo (Telemarketing)';
+      case 'productividad':
+        return 'Productividad y metas';
       case 'pipeline':
         return 'Pipeline de contactos';
       case 'prospectos':
@@ -193,7 +199,7 @@ function MainLayout() {
 
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-extrabold text-[#0D2240] tracking-tight">
+                <h2 className="text-sm sm:text-lg font-extrabold text-[#0D2240] tracking-tight">
                   {getTabTitle(currentTab)}
                 </h2>
                 <span className="hidden sm:inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#B8922A]/15 text-[#9a781f] border border-[#B8922A]/30">
@@ -206,6 +212,7 @@ function MainLayout() {
           {/* Right Header Status Bar */}
           <div className="flex items-center gap-2 sm:gap-3">
 
+            <ReminderCenter onOpenProspect={setDrawerProspecto} onCall={setModalLlamadaProspecto} onOpenCita={setSelectedCitaDetail} />
             {/* Los Angeles Time */}
             {currentTimeLA && (
               <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700">
@@ -245,7 +252,8 @@ function MainLayout() {
         <CalendarSync showExisting={currentTab === 'agenda'} showControls={currentTab === 'agenda'} />
 
         {/* Dynamic View Body */}
-        <main className="flex-1 p-2.5 sm:p-4 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="crm-main flex-1 p-2.5 sm:p-4 lg:p-8 max-w-7xl w-full mx-auto">
+          {currentTab === 'productividad' && canAccessTab('productividad', userProfile?.role, isAdmin) && <ProductivityView />}
           {currentTab === 'pipeline' && canAccessTab('pipeline', userProfile?.role, isAdmin) && <PipelineView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'trabajo' && canAccessTab('trabajo', userProfile?.role, isAdmin) && (
             <MiTrabajoView
@@ -284,7 +292,7 @@ function MainLayout() {
           {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'accesos' && isAdmin && <AccesosView />}
           {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
-          {currentTab !== 'pipeline' && currentTab !== 'trabajo' &&
+          {currentTab !== 'productividad' && currentTab !== 'pipeline' && currentTab !== 'trabajo' &&
             currentTab !== 'prospectos' &&
             currentTab !== 'cargar' &&
             currentTab !== 'agenda' &&

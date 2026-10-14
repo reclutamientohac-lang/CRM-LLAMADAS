@@ -1,25 +1,66 @@
+import { PipelineView } from './components/PipelineView';
+import { canAccessTab, getDefaultTabForRole } from './accessPolicy';
+import './stage78/style.css';
+import { CalendarSync } from './components/CalendarSync';
+import { ReportesView } from './components/ReportesView';
+import { RespaldoView, BackupBanner } from './components/RespaldoView';
+import { ConsultaGlobalView } from './components/ConsultaGlobalView';
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CRMProvider, useCRM } from './context/CRMContext';
 import { Sidebar } from './components/Sidebar';
-import { PipelineView } from './components/PipelineView';
+import { ProspectosView } from './components/ProspectosView';
+import { CargarProspectosView } from './components/CargarProspectosView';
+import { ConfiguracionView } from './components/ConfiguracionView';
+import { MiTrabajoView } from './components/MiTrabajoView';
+import { AgendaView } from './components/AgendaView';
+import { RegistrarLlamadaModal } from './components/RegistrarLlamadaModal';
+import { RegistrarResultadoCitaModal } from './components/RegistrarResultadoCitaModal';
+import { CitaDetailDrawer } from './components/CitaDetailDrawer';
+import { ProspectoDetailDrawer } from './components/ProspectoDetailDrawer';
+import { EditProspectoModal } from './components/EditProspectoModal';
+import { CitasHoyBanner } from './components/CitasHoyBanner';
+import { ProximamenteView } from './components/ProximamenteView';
 import { AuthView } from './components/AuthView';
-import { TabId, Prospecto } from './types';
-import { canAccessTab, getDefaultTabForRole } from './accessPolicy';
-import { Menu, Clock, PhoneCall } from 'lucide-react';
+import { AccesoNoAutorizadoView } from './components/AccesoNoAutorizadoView';
+import { DashboardView } from './components/DashboardView';
+import { AccesosView } from './components/AccesosView';
+import { VentasBonosView } from './components/VentasBonosView';
+import { ReporteIndividualView } from './components/ReporteIndividualView';
+import { TabId, Prospecto, Cita } from './types';
+import { Menu, Clock, ShieldCheck, Headset, PhoneCall } from 'lucide-react';
 import { testConnection } from './firebase';
+import { getTodayInLA, isCitaVencidaSinResultado } from './businessRules';
 
 function MainLayout() {
-  const { user, userProfile, loading: authLoading, isAdmin, isAuthorized, telemarketingAgent } = useAuth();
-  const [currentTab, setCurrentTab] = useState<TabId>('pipeline');
+  const {
+    user,
+    userProfile,
+    loading: authLoading,
+    isSupervisor,
+    isAdmin,
+    isAuthorized,
+    telemarketingAgent,
+  } = useAuth();
+  const { prospectos, citas } = useCRM();
+
+  const [currentTab, setCurrentTab] = useState<TabId>('trabajo');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [currentTimeLA, setCurrentTimeLA] = useState('');
-  const [drawerProspecto, setDrawerProspecto] = useState<Prospecto | null>(null);
 
+  // Modals for Mi Trabajo, Agenda & App Level
+  const [modalLlamadaProspecto, setModalLlamadaProspecto] = useState<Prospecto | null>(null);
+  const [drawerProspecto, setDrawerProspecto] = useState<Prospecto | null>(null);
+  const [editingProspecto, setEditingProspecto] = useState<Prospecto | null>(null);
+  const [selectedCitaDetail, setSelectedCitaDetail] = useState<Cita | null>(null);
+  const [modalResultadoCita, setModalResultadoCita] = useState<Cita | null>(null);
+
+  // Test server connection on boot
   useEffect(() => {
     testConnection();
   }, []);
 
+  // Update Los Angeles clock every minute
   useEffect(() => {
     const updateTime = () => {
       try {
@@ -46,131 +87,286 @@ function MainLayout() {
     if (!canAccessTab(currentTab, userProfile?.role, isAdmin)) {
       setCurrentTab(getDefaultTabForRole(userProfile?.role, isAdmin));
     }
-  }, [isAdmin, userProfile?.role, currentTab]);
+    if (!isAuthorized) {
+      setModalLlamadaProspecto(null);
+      setModalResultadoCita(null);
+      setSelectedCitaDetail(null);
+      setDrawerProspecto(null);
+    }
+  }, [isAdmin, userProfile?.role, isAuthorized, currentTab]);
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#F7F8FA] flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="w-8 h-8 border-4 border-[#0D2240] border-t-[#B8922A] rounded-full animate-spin mx-auto" />
-          <p className="text-xs font-bold text-slate-500">Iniciando CRM LLAMADAS...</p>
+      <div className="min-h-screen bg-[#0D2240] flex flex-col items-center justify-center p-4">
+        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#B8922A] to-[#d4a938] flex items-center justify-center text-[#0D2240] shadow-xl mb-4 font-black">
+          <PhoneCall className="w-7 h-7 text-[#0D2240] animate-bounce" />
         </div>
+        <h2 className="text-xl font-extrabold text-white tracking-wide">CRM LLAMADAS</h2>
+        <p className="text-xs text-slate-300 mt-1">Iniciando sistema seguro...</p>
       </div>
     );
   }
 
-  if (!user || !isAuthorized) {
+  if (!user) {
     return <AuthView />;
   }
 
+  if (!isAuthorized) {
+    return <AccesoNoAutorizadoView />;
+  }
+
+  // Count follow-ups for today or overdue
+  const todayLA = getTodayInLA();
+  const seguimientosCount = prospectos.filter(
+    (p) =>
+      !p.archivado &&
+      p.estado === 'Seguimiento programado' &&
+      p.fechaProximaAccion &&
+      p.fechaProximaAccion <= todayLA &&
+      (isSupervisor || !telemarketingAgent || p.telemarketing === telemarketingAgent)
+  ).length;
+
+  // Count active appointments for today or overdue pending results
+  const citasCount = citas.filter((c) => {
+    if (c.estadoCita === 'Cancelada') return false;
+    if (!isSupervisor && telemarketingAgent && c.telemarketing !== telemarketingAgent) return false;
+    return c.fechaCita === todayLA || isCitaVencidaSinResultado(c, todayLA);
+  }).length;
+
+  // Header Title by Tab
   const getTabTitle = (tab: TabId) => {
     switch (tab) {
-      case 'pipeline':
-        return 'Pipeline de contactos';
       case 'trabajo':
         return 'Mi Trabajo (Telemarketing)';
+      case 'pipeline':
+        return 'Pipeline de contactos';
       case 'prospectos':
         return 'Prospectos';
       case 'cargar':
         return 'Cargar Prospectos';
-      case 'agenda':
-        return 'Agenda de Citas';
-      case 'ventas':
-        return 'Ventas y Bonos';
-      case 'reporteIndividual':
-        return 'Reporte Individual';
-      case 'consulta':
-        return 'Consulta de Prospectos';
-      case 'accesos':
-        return 'Control de Accesos';
       case 'configuracion':
         return 'Configuración del Sistema';
+      case 'agenda':
+        return 'Agenda de Citas';
+      case 'dashboard':
+        return 'Dashboard & Métricas';
+      case 'accesos':
+        return 'Usuarios y accesos';
+      case 'ventas':
+        return 'Ventas / Bonos';
+      case 'individual':
+        return 'Reporte individual';
+      case 'consulta':
+        return 'Buscador global';
+      case 'reportes':
+        return 'Resumen de gestión';
+      case 'respaldo':
+        return 'Respaldo';
       default:
         return 'CRM LLAMADAS';
     }
   };
 
   return (
-    <div className="min-h-screen flex bg-[#F7F8FA]">
+    <div className="min-h-screen bg-[#F7F8FA] flex">
+      {/* Sidebar (Desktop + Mobile) */}
       <Sidebar
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
+        prospectosCount={prospectos.filter((p) => !p.archivado).length}
+        seguimientosCount={seguimientosCount}
+        citasCount={citasCount}
       />
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-8 py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+      {/* Main Content Area */}
+      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+        {/* Top Bar Header */}
+        <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-xs">
           <div className="flex items-center gap-3">
+            {/* Mobile Hamburger */}
             <button
               onClick={() => setMobileSidebarOpen(true)}
-              className="lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 cursor-pointer"
+              className="lg:hidden p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label="Abrir menú"
             >
               <Menu className="w-5 h-5" />
             </button>
-            <h2 className="text-lg font-extrabold text-[#0D2240] truncate">
-              {getTabTitle(currentTab)}
-            </h2>
+
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-extrabold text-[#0D2240] tracking-tight">
+                  {getTabTitle(currentTab)}
+                </h2>
+                <span className="hidden sm:inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#B8922A]/15 text-[#9a781f] border border-[#B8922A]/30">
+                  Etapas 7 y 8 · Reportes y Respaldo
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Right Header Status Bar */}
+          <div className="flex items-center gap-2 sm:gap-3">
+
+            {/* Los Angeles Time */}
             {currentTimeLA && (
               <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-700">
                 <Clock className="w-3.5 h-3.5 text-[#B8922A]" />
                 <span>LA: {currentTimeLA}</span>
               </div>
             )}
-            <div className="text-xs font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl">
-              {userProfile?.displayName || user.email}
+
+            {/* User Badge */}
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+              <div className="text-right hidden sm:block">
+                <div className="text-xs font-bold text-slate-800 leading-tight">
+                  {userProfile?.displayName || user.email}
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  {isSupervisor ? (
+                    <span className="text-[#B8922A] font-bold">Administrador</span>
+                  ) : userProfile?.role === 'Distribuidor' ? (
+                    <span className="text-emerald-700 font-bold">Distribuidor</span>
+                  ) : (
+                    <span className="text-sky-600 font-semibold">
+                      Agente: {telemarketingAgent || 'Sin asignar'}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-xl bg-[#0D2240] text-[#B8922A] flex items-center justify-center font-bold text-xs uppercase shadow-xs">
+                {userProfile?.displayName ? userProfile.displayName.slice(0, 2) : 'US'}
+              </div>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
-          {currentTab === 'pipeline' && (
-            <PipelineView onOpenProspecto={(p) => setDrawerProspecto(p)} />
+        {/* Citas de Hoy Alert Banner & Browser Notifications */}
+        <CitasHoyBanner onSelectProspecto={(p) => setDrawerProspecto(p)} />
+        {isAdmin && <BackupBanner onNavigate={() => setCurrentTab('respaldo')} />}
+        <CalendarSync showExisting={currentTab === 'agenda'} showControls={currentTab === 'agenda'} />
+
+        {/* Dynamic View Body */}
+        <main className="flex-1 p-2.5 sm:p-4 lg:p-8 max-w-7xl w-full mx-auto">
+          {currentTab === 'pipeline' && canAccessTab('pipeline', userProfile?.role, isAdmin) && <PipelineView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'trabajo' && canAccessTab('trabajo', userProfile?.role, isAdmin) && (
+            <MiTrabajoView
+              onOpenLlamadaModal={(p) => setModalLlamadaProspecto(p)}
+              onOpenDetailDrawer={(p) => setDrawerProspecto(p)}
+            />
           )}
-          {currentTab !== 'pipeline' && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-3">
-              <h3 className="font-bold text-[#0D2240] text-lg">{getTabTitle(currentTab)}</h3>
-              <p className="text-sm text-slate-500">Módulo activo en el sistema.</p>
-            </div>
+          {currentTab === 'prospectos' && canAccessTab('prospectos', userProfile?.role, isAdmin) && <ProspectosView />}
+          {currentTab === 'cargar' && canAccessTab('cargar', userProfile?.role, isAdmin) && <CargarProspectosView />}
+          {currentTab === 'agenda' && canAccessTab('agenda', userProfile?.role, isAdmin) && (
+            <AgendaView
+              onOpenRegistrarResultado={(c) => setModalResultadoCita(c)}
+              onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
+              onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
+            />
           )}
+          {currentTab === 'dashboard' && canAccessTab('dashboard', userProfile?.role, isAdmin) && (
+            <DashboardView
+              onOpenProspecto={(p) => setDrawerProspecto(p)}
+              onOpenCita={(c) => setSelectedCitaDetail(c)}
+            />
+          )}
+          {currentTab === 'ventas' && isAdmin && (
+            <VentasBonosView
+              onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
+              onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
+            />
+          )}
+          {currentTab === 'individual' && canAccessTab('individual', userProfile?.role, isAdmin) && (
+            <ReporteIndividualView
+              onOpenProspectoDetail={(p) => setDrawerProspecto(p)}
+              onOpenCitaDetail={(c) => setSelectedCitaDetail(c)}
+            />
+          )}
+          {currentTab === 'reportes' && isAdmin && <ReportesView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'respaldo' && isAdmin && <RespaldoView onOpenProspecto={setDrawerProspecto} />}
+          {currentTab === 'consulta' && isAdmin && <ProspectosView />}
+          {currentTab === 'accesos' && isAdmin && <AccesosView />}
+          {currentTab === 'configuracion' && isAdmin && <ConfiguracionView />}
+          {currentTab !== 'pipeline' && currentTab !== 'trabajo' &&
+            currentTab !== 'prospectos' &&
+            currentTab !== 'cargar' &&
+            currentTab !== 'agenda' &&
+            currentTab !== 'dashboard' &&
+            currentTab !== 'ventas' &&
+            currentTab !== 'reportes' &&
+            currentTab !== 'individual' &&
+            currentTab !== 'respaldo' &&
+            currentTab !== 'consulta' &&
+            currentTab !== 'accesos' &&
+            currentTab !== 'configuracion' && (
+              <ProximamenteView
+                tabId={currentTab}
+                onNavigateToProspectos={() => setCurrentTab('prospectos')}
+              />
+            )}
         </main>
       </div>
 
-      {drawerProspecto && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="fixed inset-0 bg-slate-900/40" onClick={() => setDrawerProspecto(null)} />
-          <div className="relative bg-white w-full max-w-md h-full shadow-2xl p-6 overflow-y-auto space-y-4">
-            <div className="flex justify-between items-start border-b pb-4">
-              <div>
-                <h3 className="text-lg font-bold text-[#0D2240]">{drawerProspecto.nombre}</h3>
-                <p className="text-xs text-slate-500">{drawerProspecto.telefono}</p>
-              </div>
-              <button
-                onClick={() => setDrawerProspecto(null)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-sm px-2 py-1 rounded-lg hover:bg-slate-100"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="space-y-3 text-sm">
-              <p><strong className="text-slate-700">Telemarketing:</strong> {drawerProspecto.telemarketing || 'Sin asignar'}</p>
-              <p><strong className="text-slate-700">Propietario:</strong> {drawerProspecto.propietario || 'Sin propietario'}</p>
-              <p><strong className="text-slate-700">Ciudad/Zona:</strong> {drawerProspecto.ciudadZona || 'Sin ubicación'}</p>
-              <p><strong className="text-slate-700">Intentos:</strong> {drawerProspecto.intentos || 0}</p>
-              <p><strong className="text-slate-700">Estado:</strong> {drawerProspecto.estado}</p>
-              {drawerProspecto.notas && (
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  <strong className="block text-xs text-slate-600 mb-1">Notas:</strong>
-                  <p className="text-xs text-slate-700">{drawerProspecto.notas}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* Global Modals for App Layout */}
+      {modalLlamadaProspecto && (
+        <RegistrarLlamadaModal
+          prospecto={modalLlamadaProspecto}
+          onClose={() => setModalLlamadaProspecto(null)}
+          onSuccess={() => setModalLlamadaProspecto(null)}
+        />
       )}
+
+      {selectedCitaDetail && (
+        <CitaDetailDrawer
+          cita={selectedCitaDetail}
+          onClose={() => setSelectedCitaDetail(null)}
+          onOpenProspectoDetail={(p) => {
+            setSelectedCitaDetail(null);
+            setDrawerProspecto(p);
+          }}
+          onOpenRegistrarResultado={(c) => {
+            setSelectedCitaDetail(null);
+            setModalResultadoCita(c);
+          }}
+        />
+      )}
+
+      {modalResultadoCita && (
+        <RegistrarResultadoCitaModal
+          cita={modalResultadoCita}
+          onClose={() => setModalResultadoCita(null)}
+          onSuccess={() => setModalResultadoCita(null)}
+        />
+      )}
+
+      {drawerProspecto && (
+        <ProspectoDetailDrawer
+          prospecto={drawerProspecto}
+          onClose={() => setDrawerProspecto(null)}
+          onEdit={(p) => {
+            setDrawerProspecto(null);
+            setEditingProspecto(p);
+          }}
+          onOpenRegistrarLlamada={(p) => {
+            setDrawerProspecto(null);
+            setModalLlamadaProspecto(p);
+          }}
+          onOpenCitaDetail={(c) => {
+            setDrawerProspecto(null);
+            setSelectedCitaDetail(c);
+          }}
+        />
+      )}
+
+      {editingProspecto && (
+        <EditProspectoModal
+          prospecto={editingProspecto}
+          onClose={() => setEditingProspecto(null)}
+          onSaved={() => setEditingProspecto(null)}
+        />
+      )}
+
     </div>
   );
 }
@@ -184,3 +380,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+

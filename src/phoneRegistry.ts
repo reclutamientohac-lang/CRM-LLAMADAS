@@ -11,11 +11,13 @@ export function phoneIndexPreview(rows: {id:string;telefono:string}[]) {
   for (const p of rows) { const phone=normalizePhone(p.telefono); if (!/^\d{10}$/.test(phone)) { invalid.push(p.id); continue; } if (phones.has(phone) && phones.get(phone)!==p.id) conflicts.push(phone); else phones.set(phone,p.id); }
   return { phones, conflicts:[...new Set(conflicts)], invalid };
 }
-export async function preparePhoneIndex(apply = false, db: Firestore = defaultDb) {
+export async function preparePhoneIndex(apply = false, db: Firestore = defaultDb, preserveLegacy = false) {
   const snapshot=await getDocs(collection(db,'prospectos'));
   const rows=snapshot.docs.map(d=>({id:d.id,telefono:d.data().telefono || ''}));
   const preview=phoneIndexPreview(rows);
-  if (!apply || preview.conflicts.length || preview.invalid.length) return { count:preview.phones.size, conflicts:preview.conflicts, invalid:preview.invalid, applied:false };
+  if (!apply || (!preserveLegacy && (preview.conflicts.length || preview.invalid.length))) return { count:preview.phones.size, conflicts:preview.conflicts, invalid:preview.invalid, applied:false };
+  const initialPhones = new Map(rows.map(row => [row.id, normalizePhone(row.telefono)]));
+  const conflicts = new Set(preview.conflicts);
   await setDoc(status(db),{ready:false,actualizadoEnServidor:serverTimestamp()});
   const entries=[...preview.phones];
   for(let i=0;i<entries.length;i+=50) {
@@ -25,17 +27,22 @@ export async function preparePhoneIndex(apply = false, db: Firestore = defaultDb
       const indexes=await Promise.all(group.map(([phone])=>tx.get(registry(phone,db))));
       group.forEach(([phone,id],n)=>{
         if(!sources[n].exists() || normalizePhone(sources[n].data()?.telefono)!==phone) throw new Error('La cartera cambió durante la preparación. Vuelve a verificar.');
-        if(indexes[n].exists() && indexes[n].data()?.idProspecto!==id) throw new Error('Existe un conflicto en el índice. Requiere revisión administrativa.');
-        tx.set(registry(phone,db),{idProspecto:id,actualizadoEnServidor:serverTimestamp()});
+        const previous = indexes[n].data();
+        const legacy = conflicts.has(phone) || previous?.conflictoHistorico === true;
+        // A shared historical phone remains reserved independently of either lead.
+        // Moving one of those leads must never release the other's phone.
+        const owner = legacy ? `legacy:${phone}` : id;
+        if(indexes[n].exists() && previous?.idProspecto!==owner && initialPhones.get(previous?.idProspecto)!==phone) throw new Error('Existe un conflicto en el índice. Requiere revisión administrativa.');
+        tx.set(registry(phone,db),{idProspecto:owner,...(legacy ? {conflictoHistorico:true} : {}),actualizadoEnServidor:serverTimestamp()});
       });
     });
   }
   // Recheck membership and phones before enabling writes. Source creates in the app
   // remain blocked while ready=false; restoration must invalidate this flag.
   const current=await getDocs(collection(db,'prospectos'));
-  if(current.size!==snapshot.size || current.docs.some(d=>preview.phones.get(normalizePhone(d.data().telefono))!==d.id)) throw new Error('La cartera cambió. El índice queda deshabilitado hasta una nueva verificación.');
-  await setDoc(status(db),{ready:true,count:entries.length,actualizadoEnServidor:serverTimestamp()});
-  return {count:entries.length,conflicts:[],invalid:[],applied:true};
+  if(current.size!==snapshot.size || current.docs.some(d=>initialPhones.get(d.id)!==normalizePhone(d.data().telefono))) throw new Error('La cartera cambió. El índice queda deshabilitado hasta una nueva verificación.');
+  await setDoc(status(db),{ready:true,count:entries.length,conflictosHistoricos:preview.conflicts.length,telefonosInvalidosHistoricos:preview.invalid.length,actualizadoEnServidor:serverTimestamp()});
+  return {count:entries.length,conflicts:preview.conflicts,invalid:preview.invalid,applied:true};
 }
 export async function createProspectWithPhone(lead: Prospecto, db: Firestore = defaultDb) {
   const phone=normalizePhone(lead.telefono);

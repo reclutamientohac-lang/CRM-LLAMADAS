@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { before, after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, setDoc, deleteDoc } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
-import { preparePhoneIndex, createProspectWithPhone } from '../src/phoneRegistry';
+import { preparePhoneIndex, createProspectWithPhone, updateProspectWithPhone } from '../src/phoneRegistry';
 
 let env: Awaited<ReturnType<typeof initializeTestEnvironment>>;
 const adminEmail = JSON.parse(readFileSync('scripts/seller-test-config.json', 'utf8')).adminEmail;
@@ -48,4 +48,26 @@ test('los duplicados y teléfonos inválidos detienen la preparación sin altera
   assert.equal((await getDoc(doc(admin,'settings','phoneIndexStatus'))).exists(),false);
   assert.equal((await getDocs(collection(admin,'prospectos'))).size,3);
   assert.equal((await getDocs(collection(admin,'telefonosUnicos'))).size,0);
+});
+
+test('la preparación histórica conserva cada ficha y reserva duplicados aunque una ficha cambie de teléfono', async () => {
+  const admin = env.authenticatedContext('admin',{email:adminEmail,email_verified:true}).firestore() as unknown as Firestore;
+  const agent = env.authenticatedContext('agent',{email:'agent@example.com',email_verified:true}).firestore() as unknown as Firestore;
+  await setDoc(doc(admin,'usuariosAutorizados','agent@example.com'),{rol:'Telemarketing',activo:true,nombre:'GERAL',telemarketingVinculada:'GERAL'});
+  const originals = [['a','2135550199'],['b','12135550199'],['invalid','123']].map(([id,telefono])=>({id,nombre:id,telefono,telemarketing:'GERAL',intentos:2,contactosEfectivos:1}));
+  for (const lead of originals) await setDoc(doc(admin,'prospectos',lead.id),lead);
+  await assert.rejects(preparePhoneIndex(true,agent,true));
+  const result=await preparePhoneIndex(true,admin,true);
+  assert.equal(result.applied,true);
+  for (const lead of originals) assert.deepEqual((await getDoc(doc(admin,'prospectos',lead.id))).data(),lead);
+  assert.equal((await getDoc(doc(admin,'telefonosUnicos','2135550199'))).data()?.conflictoHistorico,true);
+  const lead={id:'new',nombre:'Nuevo',telefono:'2025550148',telemarketing:'GERAL',intentos:0,contactosEfectivos:0,creadoPor:'agent@example.com'} as any;
+  await createProspectWithPhone(lead,agent);
+  await assert.rejects(createProspectWithPhone({...lead,id:'duplicate',telefono:'2135550199'},agent),/ya está registrado/);
+  await updateProspectWithPhone('a',{telefono:'2025550179'},'agent@example.com',agent);
+  assert.equal((await getDoc(doc(admin,'telefonosUnicos','2135550199'))).exists(),true);
+  await assert.rejects(deleteDoc(doc(agent,'telefonosUnicos','2135550199')));
+  await assert.rejects(createProspectWithPhone({...lead,id:'duplicate-after-edit',telefono:'2135550199'},agent),/ya está registrado/);
+  assert.equal((await getDoc(doc(admin,'prospectos','b'))).data()?.telefono,'12135550199');
+  assert.equal((await preparePhoneIndex(true,admin,true)).applied,true);
 });

@@ -252,7 +252,7 @@ function MainLayout() {
         <CalendarSync showExisting={currentTab === 'agenda'} showControls={currentTab === 'agenda'} />
 
         {/* Dynamic View Body */}
-        <main className="crm-main flex-1 p-2.5 sm:p-4 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className={`crm-main flex-1 min-w-0 w-full mx-auto ${currentTab === 'ventas' ? 'max-w-none p-2 sm:p-3 lg:p-4' : 'p-2.5 sm:p-4 lg:p-8 max-w-7xl'}`}>
           {currentTab === 'productividad' && canAccessTab('productividad', userProfile?.role, isAdmin) && <ProductivityView />}
           {currentTab === 'pipeline' && canAccessTab('pipeline', userProfile?.role, isAdmin) && <PipelineView onOpenProspecto={setDrawerProspecto} />}
           {currentTab === 'trabajo' && canAccessTab('trabajo', userProfile?.role, isAdmin) && (
@@ -383,4 +383,5 @@ export default function App() {
     </AuthProvider>
   );
 }
+
 

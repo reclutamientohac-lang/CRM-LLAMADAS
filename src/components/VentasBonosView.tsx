@@ -1,3 +1,4 @@
+import './VentasBonosView.css';
 import { truncateDecimal, sumMoney, percentageNumber } from '../money';
 import { PrintReport } from './AgendaView';
 import React, { useState, useMemo, useEffect } from 'react';
@@ -1101,27 +1102,28 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs whitespace-nowrap">
+        <div className="sales-ledger w-full min-w-0">
+          <table className="w-full table-fixed text-left text-xs">
+            
+            <colgroup><col style={{width: '10%'}} /><col style={{width: '8%'}} /><col style={{width: '16%'}} /><col style={{width: '10%'}} /><col style={{width: '7%'}} /><col style={{width: '10%'}} /><col style={{width: '9%'}} /><col style={{width: '9%'}} /><col style={{width: '11%'}} /><col style={{width: '10%'}} /></colgroup>
             <thead>
               <tr className="bg-[#0D2240] text-white uppercase font-bold text-[11px] tracking-wider">
                 <th className="py-3 px-3.5">Fecha Cita</th>
                 <th className="py-3 px-3.5">Telemarketing</th>
                 <th className="py-3 px-3.5">Prospecto</th>
-                <th className="py-3 px-3.5 w-36">Monto Aprobado ($)</th>
-                <th className="py-3 px-3.5 w-28">% Bono</th>
-                <th className="py-3 px-3.5 w-32">Estado Venta</th>
+                <th className="py-3 px-3.5">Monto Aprobado ($)</th>
+                <th className="py-3 px-3.5">% Bono</th>
+                <th className="py-3 px-3.5">Estado Venta</th>
                 <th className="py-3 px-3.5 text-right">Bono Generado</th>
                 <th className="py-3 px-3.5 text-right">Saldo Por Pagar</th>
-                <th className="py-3 px-3.5 w-44">Estatus Comisión</th>
-                <th className="py-3 px-3.5 min-w-[170px]">Observación</th>
+                <th className="py-3 px-3.5">Estatus Comisión</th>
                 <th className="py-3 px-3.5 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
               {filteredVentasList.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-slate-400">
                     No se encontraron ventas para este rango de fecha de cita y filtros.
                   </td>
                 </tr>
@@ -1142,18 +1144,18 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                       } ${hasErrors ? 'bg-rose-50/40' : ''}`}
                     >
                       {/* Fecha Cita */}
-                      <td className="py-3 px-3.5 font-bold text-slate-900 font-mono">
+                      <td data-label="Fecha Cita" className="py-3 px-3.5 font-bold text-slate-900 font-mono">
                         <div>{formatDateDisplay(r.fechaCita)}</div>
                         {r.horaCita && <div className="text-[10px] text-slate-400">{r.horaCita}</div>}
                       </td>
 
                       {/* Telemarketing */}
-                      <td className="py-3 px-3.5 font-extrabold text-[#0D2240]">
+                      <td data-label="Telemarketing" className="py-3 px-3.5 font-extrabold text-[#0D2240]">
                         {v.telemarketing}
                       </td>
 
                       {/* Prospecto */}
-                      <td className="py-3 px-3.5">
+                      <td data-label="Prospecto" className="py-3 px-3.5">
                         <div className="font-bold text-slate-900">{r.nombreProspecto}</div>
                         {r.telefonoProspecto && (
                           <div className="text-[11px] text-slate-400 font-mono">
@@ -1163,7 +1165,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                       </td>
 
                       {/* Monto Aprobado (Editable) */}
-                      <td className="py-3 px-3.5">
+                      <td data-label="Monto Aprobado ($)" className="py-3 px-3.5">
                         <div className="relative">
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
                           <input
@@ -1177,7 +1179,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                       </td>
 
                       {/* % Bono (Editable, ej 1.5 significa 1.5%) */}
-                      <td className="py-3 px-3.5">
+                      <td data-label="% Bono" className="py-3 px-3.5">
                         <div className="relative">
                           <input
                             type="text"
@@ -1191,7 +1193,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                       </td>
 
                       {/* Estado Venta */}
-                      <td className="py-3 px-3.5">
+                      <td data-label="Estado Venta" className="py-3 px-3.5">
                         <select
                           value={r.estado}
                           onChange={(e) => handleRowChange(v.id, 'estado', e.target.value as EstadoVenta)}
@@ -1206,17 +1208,17 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                       </td>
 
                       {/* Bono Generado */}
-                      <td className="py-3 px-3.5 text-right font-mono font-extrabold text-slate-700">
+                      <td data-label="Bono Generado" className="py-3 px-3.5 text-right font-mono font-extrabold text-slate-700">
                         {r.bonoGenerado !== null ? formatCurrency(r.bonoGenerado) : '-'}
                       </td>
 
                       {/* Saldo Por Pagar */}
-                      <td className="py-3 px-3.5 text-right font-mono font-black text-emerald-700">
+                      <td data-label="Saldo Por Pagar" className="py-3 px-3.5 text-right font-mono font-black text-emerald-700">
                         {formatCurrency(r.bonoPagable)}
                       </td>
 
                       {/* Estatus Comisión (Pendiente vs Pagada) */}
-                      <td className="py-3 px-3.5">
+                      <td data-label="Estatus Comisión" className="py-3 px-3.5">
                         <div className="space-y-1">
                           <select
                             value={r.estadoPago}
@@ -1233,7 +1235,7 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                             <option value="Pagada">Pagada</option>
                           </select>
                           {r.estadoPago === 'Pagada' && (
-                            <div className="flex items-center gap-1 text-[10px] text-emerald-800 font-semibold">
+                            <div className="sales-payment-date flex items-center gap-1 text-[10px] text-emerald-800 font-semibold">
                               <span>Fecha:</span>
                               <input
                                 type="date"
@@ -1246,24 +1248,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                         </div>
                       </td>
 
-                      {/* Observación */}
-                      <td className="py-3 px-3.5">
-                        <input
-                          type="text"
-                          value={r.observacion}
-                          onChange={(e) => handleRowChange(v.id, 'observacion', e.target.value)}
-                          placeholder="Nota u observación..."
-                          className="w-full px-2.5 py-1.5 bg-white rounded-lg border border-slate-300 text-xs focus:border-[#0D2240] outline-none"
-                        />
-                        {hasErrors && (
-                          <div className="text-[10px] text-rose-600 font-bold mt-0.5">
-                            {r.errors[0]}
-                          </div>
-                        )}
-                      </td>
-
                       {/* Acciones */}
-                      <td className="py-3 px-3.5 text-center whitespace-nowrap space-x-1.5">
+                      <td data-label="Acciones" className="sales-actions py-3 px-3.5 text-center">
+                        <div className="sales-action-buttons">
                         {/* Botón Rápido Cambiar Estatus Comisión a Pagada o Pendiente */}
                         {r.estadoPago !== 'Pagada' ? (
                           <button
@@ -1322,6 +1309,9 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
                             <Ban className="w-3.5 h-3.5" />
                           </button>
                         )}
+                      
+                        </div>
+                        {hasErrors && <p role="alert" className="mt-1 text-left text-[11px] font-bold text-rose-600">{r.errors[0]}</p>}
                       </td>
                     </tr>
                   );
@@ -1332,24 +1322,24 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
             {/* FILA DE TOTALES FIJA AL PIE */}
             <tfoot>
               <tr className="bg-[#0D2240] text-white font-extrabold border-t-2 border-slate-300">
-                <td colSpan={3} className="py-3.5 px-4 font-black tracking-wide text-white">
+                <td data-label="Total ventas" colSpan={3} className="py-3.5 px-4 font-black tracking-wide text-white">
                   TOTALES ({totals.countVentas} ventas en período)
                 </td>
-                <td className="py-3.5 px-3.5 font-mono text-white font-black">
+                <td data-label="Monto aprobado" className="py-3.5 px-3.5 font-mono text-white font-black">
                   {formatCurrency(totals.totalMonto)}
                 </td>
-                <td className="py-3.5 px-3.5 text-white font-mono">-</td>
-                <td className="py-3.5 px-3.5 text-white font-mono">-</td>
-                <td className="py-3.5 px-3.5 text-right font-mono text-amber-300 font-bold">
+                <td data-label="Porcentaje" className="py-3.5 px-3.5 text-white font-mono">-</td>
+                <td data-label="Estado" className="py-3.5 px-3.5 text-white font-mono">-</td>
+                <td data-label="Bono generado" className="py-3.5 px-3.5 text-right font-mono text-amber-300 font-bold">
                   {formatCurrency(totals.totalBonoGen)}
                 </td>
-                <td className="py-3.5 px-3.5 text-right font-mono text-emerald-300 font-black">
+                <td data-label="Saldo por pagar" className="py-3.5 px-3.5 text-right font-mono text-emerald-300 font-black">
                   {formatCurrency(totals.totalBonoPag)}
                 </td>
-                <td className="py-3.5 px-3.5 font-mono text-blue-300 text-xs font-black">
+                <td data-label="Comisiones pagadas" className="py-3.5 px-3.5 font-mono text-blue-300 text-xs font-black">
                   Pagadas: {totals.countComisionesPagadas} ({formatCurrency(totals.totalComisionesPagadas)})
                 </td>
-                <td colSpan={2} className="py-3.5 px-3.5 text-right text-xs text-slate-300">
+                <td data-label="Cambios" colSpan={1} className="py-3.5 px-3.5 text-right text-xs text-slate-300">
                   {modifiedCount > 0 ? (
                     <span className="text-amber-300 font-bold">⚠ {modifiedCount} cambios pendientes</span>
                   ) : (
@@ -1491,3 +1481,4 @@ export const VentasBonosView: React.FC<VentasBonosViewProps> = ({
     </div>
   );
 };
+

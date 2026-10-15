@@ -1,0 +1,28 @@
+/* The ledger fits the available content width; narrow panels become cards. */
+.sales-ledger { container: sales-ledger / inline-size; width: 100%; min-width: 0; }
+.sales-ledger table { width: 100%; table-layout: fixed; white-space: normal; }
+.sales-ledger th, .sales-ledger td { padding: .65rem .35rem; vertical-align: top; overflow-wrap: anywhere; }
+.sales-ledger th { font-size: 10px; letter-spacing: .025em; }
+.sales-ledger td { font-size: 11px; }
+.sales-ledger input, .sales-ledger select { min-width: 0; max-width: 100%; width: 100%; }
+.sales-ledger input[type="date"] { box-sizing: border-box; }
+.sales-ledger .sales-actions { white-space: normal; }
+.sales-ledger .sales-action-buttons { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .25rem; }
+.sales-ledger .sales-action-buttons > button { margin: 0; }
+.sales-ledger .sales-payment-date { flex-wrap: wrap; }
+.sales-ledger .sales-payment-date input { flex: 1 1 100%; }
+@container sales-ledger (max-width: 850px) {
+ .sales-ledger table, .sales-ledger tbody, .sales-ledger tfoot { display: block; }
+ .sales-ledger colgroup, .sales-ledger thead { display: none; }
+ .sales-ledger tbody > tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .5rem; margin: .75rem; padding: .75rem; border: 1px solid #e2e8f0; border-radius: 1rem; }
+ .sales-ledger tbody > tr > td { display: block; min-width: 0; padding: .25rem; font-size: 12px; text-align: left; }
+ .sales-ledger tbody > tr > td::before { content: attr(data-label); display: block; margin-bottom: .35rem; color: #64748b; font-size: 10px; font-weight: 800; }
+ .sales-ledger tbody > tr > td.sales-actions, .sales-ledger tbody > tr > td[colspan] { grid-column: 1 / -1; }
+ .sales-ledger .sales-action-buttons { justify-content: flex-start; }
+ .sales-ledger .sales-action-buttons > button { min-height: 40px; min-width: 40px; }
+ .sales-ledger input, .sales-ledger select { min-height: 40px; }
+ .sales-ledger tfoot > tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); padding: .5rem; }
+ .sales-ledger tfoot td { display: block; min-width: 0; padding: .5rem; }
+ .sales-ledger tfoot td:first-child, .sales-ledger tfoot td:last-child { grid-column: 1 / -1; }
+ .sales-ledger tfoot td[data-label]::before { content: attr(data-label); display: block; color: #cbd5e1; font-size: 10px; }
+}

@@ -35,9 +35,33 @@ test('agent sees only currently assigned contacts, missing assignment fails clos
   assert.deepEqual(buildPipeline(d, { global: false }), []); assert.deepEqual(buildPipeline(d, { global: false, agent: 'SIN ASIGNAR' }), []);
   assert.equal(buildPipeline(d, global).length, 3);
 });
-test('invalid counters stay finite and archived contacts remain available', () => {
-  const rows = buildPipeline(data({ prospectos: [p('a', { intentos: -5 }), p('b', { intentos: NaN }), p('c', { archivado: true, intentos: 1.9 })] }), global);
+test('invalid counters stay finite', () => {
+  const rows = buildPipeline(data({ prospectos: [p('a', { intentos: -5 }), p('b', { intentos: NaN }), p('c', { intentos: 1.9 })] }), global);
   assert.deepEqual(rows.map(r => r.llamadas), [0, 0, 1]); assert.equal(rows.length, 3);
+});
+test('trash contacts are excluded from every stage for administrators and assigned agents without changing their history', () => {
+  const d = data({
+    prospectos: [p('active'), p('legacy-active', { archivado: false }), p('0', { archivado: true }), p('1', { archivado: true, intentos: 1 }), p('2', { archivado: true, intentos: 2 }), p('3', { archivado: true, intentos: 3 }), p('c', { archivado: true }), p('v', { archivado: true })],
+    gestiones: [g('archived-call', '1')],
+    citas: [c('archived-cita', 'c'), c('archived-sale-cita', 'v')],
+    ventas: [v('archived-sale', 'v', { idCita: 'archived-sale-cita', bonoGenerado: 67.5, montoAprobado: 4500 })],
+    retroalimentaciones: [{ id: 'r', idProspecto: 'v', idCita: 'archived-sale-cita', resultado: 'Venta' } as Retroalimentacion],
+  });
+  const original = JSON.stringify(d);
+  for (const scope of [global, { global: false, agent: 'GERAL' }]) {
+    assert.deepEqual(buildPipeline(d, scope).map(r => r.prospecto.id), ['active', 'legacy-active']);
+  }
+  assert.equal(JSON.stringify(d), original);
+});
+test('archiving removes a contact immediately and restoring returns it to its original stage', () => {
+  const prospecto = p('a', { archivado: false, intentosHistoricos: 2 });
+  const d = data({ prospectos: [prospecto], gestiones: [g('new-call', 'a')] });
+  assert.equal(buildPipeline(d, global)[0].stage, 'tres-llamadas');
+  prospecto.archivado = true;
+  assert.deepEqual(buildPipeline(d, global), []);
+  prospecto.archivado = false;
+  assert.equal(buildPipeline(d, global)[0].stage, 'tres-llamadas');
+  assert.equal(d.gestiones.length, 1);
 });
 test('live changes advance contact without mutating snapshots or financial fields', () => {
   const d = data({ prospectos: [p('a')] }); const original = JSON.stringify(d); assert.equal(buildPipeline(d, global)[0].stage, 'sin-llamar'); assert.equal(JSON.stringify(d), original);

@@ -26,10 +26,17 @@ import {
 } from '../businessRules';
 import { Prospecto } from '../types';
 import { CargaMasivaExcelView } from './CargaMasivaExcelView';
+import { usePhoneIndexStatus } from '../hooks/usePhoneIndexStatus';
 
 export const CargarProspectosView: React.FC = () => {
   const { addProspecto, settings, prospectos } = useCRM();
   const { userProfile, isSupervisor, isAdmin } = useAuth();
+  const phoneIndex = usePhoneIndexStatus();
+  const phoneIndexMessage = phoneIndex.error || (phoneIndex.loading
+    ? 'Verificando que el registro de prospectos esté disponible...'
+    : isAdmin
+      ? 'Prepara el índice de teléfonos desde Configuración → Protección de teléfonos duplicados antes de registrar prospectos.'
+      : 'El administrador debe preparar el índice de teléfonos en Configuración para habilitar el registro. Puedes conservar los datos en este formulario.');
   const isSeller = userProfile?.role === 'Vendedor';
 
   // Internal tab state: "Carga individual" o "Carga masiva por Excel"
@@ -78,6 +85,11 @@ export const CargarProspectosView: React.FC = () => {
     e.preventDefault();
     setErrorMessage(null);
     setCreatedProspecto(null);
+
+    if (!phoneIndex.ready) {
+      setErrorMessage(phoneIndexMessage);
+      return;
+    }
 
     // Validaciones inmediatas
     if (!formData.nombre.trim()) {
@@ -268,8 +280,14 @@ export const CargarProspectosView: React.FC = () => {
           )}
 
           {/* Validation Error Banner in Red */}
+          {!phoneIndex.ready && (
+            <div role="status" className="bg-amber-50 border border-amber-300 rounded-2xl p-5">
+              <h4 className="text-sm font-bold text-amber-900">{phoneIndex.loading ? 'Verificando registro' : 'Registro pendiente de habilitación'}</h4>
+              <p className="text-sm text-amber-900 mt-1">{phoneIndexMessage}</p>
+            </div>
+          )}
           {errorMessage && (
-            <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-5 shadow-sm animate-in fade-in duration-200">
+            <div role="alert" className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-5 shadow-sm animate-in fade-in duration-200">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
                 <div>
@@ -616,7 +634,7 @@ export const CargarProspectosView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !phoneIndex.ready}
                   className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-2.5 rounded-xl bg-[#0D2240] hover:bg-[#163665] text-white font-bold text-sm shadow-md shadow-slate-900/10 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? (

@@ -100,7 +100,6 @@ export const ConfiguracionView: React.FC = () => {
   if (!isSupervisor) {
     return (
       <div className="max-w-md mx-auto py-16 text-center space-y-4">
-      {isAdmin && <PhoneIndexSetup />}
         <Shield className="w-16 h-16 text-rose-500 mx-auto" />
         <h2 className="text-xl font-bold text-slate-800">Acceso Restringido</h2>
         <p className="text-sm text-slate-500">
@@ -463,6 +462,7 @@ export const ConfiguracionView: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-16">
+      {isAdmin && <PhoneIndexSetup />}
       {isAdmin && <UnificarPropietarios />}
       {/* Top Header */}
       <div>

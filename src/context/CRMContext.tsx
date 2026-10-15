@@ -649,8 +649,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await createProspectWithPhone(newProspecto);
       return { success: true, prospecto: newProspecto };
     } catch (err) {
-      handleFirestoreError(err, OperationType.CREATE, `prospectos/${id}`);
-      return { success: false, error: 'Error al guardar el prospecto en Firestore.' };
+      console.error('Error al guardar el prospecto:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Error al guardar el prospecto. Intenta nuevamente.' };
     }
   };
 

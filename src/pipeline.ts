@@ -20,7 +20,7 @@ const count = (value: unknown) => typeof value === 'number' && Number.isFinite(v
 export function buildPipeline(data: PipelineData, scope: PipelineScope): PipelineContact[] {
   const agent = normalize(scope.agent);
   if (!scope.global && (!agent || agent === 'SIN ASIGNAR')) return [];
-  const prospects = new Map(data.prospectos.filter(p => p.id && (scope.global || normalize(p.telemarketing) === agent)).map(p => [p.id, p]));
+  const prospects = new Map(data.prospectos.filter(p => p.id && !p.archivado && (scope.global || normalize(p.telemarketing) === agent)).map(p => [p.id, p]));
   const calls = new Map<string, number>();
   const appointments = new Map<string, Set<string>>();
   const sales = new Map<string, Set<string>>();

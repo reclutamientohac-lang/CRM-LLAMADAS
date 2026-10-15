@@ -30,7 +30,6 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
   const [agent, setAgent] = useState('');
   const [owner, setOwner] = useState('');
   const [search, setSearch] = useState('');
-  const [includeArchived, setIncludeArchived] = useState(true);
   const [limits, setLimits] = useState<Partial<Record<PipelineStage, number>>>({});
   const global = isAuthorized && (isAdmin || userProfile?.role === 'Supervisor' || userProfile?.role === 'Distribuidor');
   const contacts = useMemo(() => isAuthorized ? buildPipeline({ prospectos, gestiones, citas, ventas, retroalimentaciones }, { global: global || userProfile?.role === 'Vendedor', agent: telemarketingAgent }) : [], [prospectos, gestiones, citas, ventas, retroalimentaciones, global, isAuthorized, telemarketingAgent, userProfile?.role]);
@@ -44,13 +43,12 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
     return Array.from(labels, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label, 'es'));
   }, [contacts]);
   const visible = useMemo(() => contacts.filter(({ prospecto: p }) => {
-    if (!includeArchived && p.archivado) return false;
     if (global && agent && normalize(p.telemarketing || 'SIN ASIGNAR') !== normalize(agent)) return false;
     const ownerKey = normalize((p.propietario || '').trim().replace(/\s+/g, ' ')) || '__sin_propietario__';
     if (owner && ownerKey !== owner) return false;
     const query = normalize(search);
     return !query || normalize([p.nombre, p.telefono, p.propietario, p.ciudadZona].join(' ')).includes(query);
-  }).sort((a, b) => (b.prospecto.fechaRecepcion || '').localeCompare(a.prospecto.fechaRecepcion || '') || a.prospecto.nombre.localeCompare(b.prospecto.nombre, 'es')), [contacts, includeArchived, global, agent, owner, search]);
+  }).sort((a, b) => (b.prospecto.fechaRecepcion || '').localeCompare(a.prospecto.fechaRecepcion || '') || a.prospecto.nombre.localeCompare(b.prospecto.nombre, 'es')), [contacts, global, agent, owner, search]);
   const groups = useMemo(() => PIPELINE_STAGES.map(stage => ({ ...stage, rows: visible.filter(c => c.stage === stage.id).sort((a, b) => stage.id === 'sin-llamar' ? ingresoReciente(b.prospecto) - ingresoReciente(a.prospecto) : 0) })), [visible]);
   const total = visible.length;
   const appointments = visible.filter(c => c.citas > 0 || c.ventas > 0).length;
@@ -62,7 +60,7 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
       <div className="flex flex-wrap items-start justify-between gap-5">
         <div><div className="flex items-center gap-2 text-[#d4a938] text-xs font-bold uppercase tracking-widest"><Columns3 className="w-4 h-4" /> Avance comercial</div>
           <h1 className="text-2xl sm:text-3xl font-extrabold mt-2">Pipeline de contactos</h1>
-          <p className="mt-2 text-sm text-slate-300">Historial completo, desde la primera llamada hasta la venta.</p></div>
+          <p className="mt-2 text-sm text-slate-300">Prospectos activos, desde la primera llamada hasta la venta.</p></div>
         <div className="flex gap-6 text-center"><div><p className="text-3xl font-bold">{total.toLocaleString('es')}</p><p className="text-xs text-slate-300">Contactos</p></div><div><p className="text-3xl font-bold text-[#d4a938]">{total ? (100 * sold / total).toFixed(1) : '0'}%</p><p className="text-xs text-slate-300">Con venta</p></div></div>
       </div>
       <p className="text-xs text-slate-300 mt-5">{appointments.toLocaleString('es')} contactos alcanzaron una cita o venta. Cada contacto aparece en una sola etapa.</p>
@@ -73,7 +71,6 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
       {global && <label><span className="block text-xs font-bold text-slate-600 mb-2">Telemarketing</span><select value={agent} onChange={e => { setAgent(e.target.value); reset(); }} className="border border-slate-200 rounded-xl px-3 py-2.5 text-sm"><option value="">Todas las agentes</option>{agents.map(a => <option key={a} value={a}>{a}</option>)}</select></label>}
       <label><span className="block text-xs font-bold text-slate-600 mb-2">Propietario</span><select value={owner} onChange={e => { setOwner(e.target.value); reset(); }} className="max-w-64 border border-slate-200 rounded-xl px-3 py-2.5 text-sm"><option value="">Todos los propietarios</option>{owners.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
       {!global && <p className="text-sm font-semibold text-slate-600 py-3">Cartera: {userProfile?.role === 'Vendedor' ? userProfile.displayName : telemarketingAgent || 'Sin asignar'}</p>}
-      <label className="flex items-center gap-2 text-sm text-slate-600 py-3"><input type="checkbox" checked={includeArchived} onChange={e => { setIncludeArchived(e.target.checked); reset(); }} />Incluir archivados</label>
     </div>
     <p className="text-xs text-slate-500">Citas históricas y actuales, incluidas las canceladas. Ventas aprobadas o pendientes; las ventas canceladas no cuentan como venta. Las llamadas incluyen los intentos históricos.</p>
     <div className="w-full min-w-0 pb-3" aria-label="Etapas del pipeline">
@@ -95,7 +92,6 @@ export function PipelineView({ onOpenProspecto }: { onOpenProspecto: (p: Prospec
                   <span className="inline-flex items-center gap-1" title={`${row.citas} citas`} aria-label={`${row.citas} citas`}><Calendar className="w-3 h-3" />{row.citas}</span>
                   <span className="inline-flex items-center gap-1" title={`${row.ventas} ventas`} aria-label={`${row.ventas} ventas`}><Award className="w-3 h-3" />{row.ventas}</span>
                 </div>
-                {row.prospecto.archivado && <span className="inline-block text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded mt-3">Archivado</span>}
               </button>)}
               {!group.rows.length && <p className="text-xs text-slate-400 text-center py-8">Sin contactos en esta etapa</p>}
               {group.rows.length > limit && <button onClick={() => setLimits(prev => ({ ...prev, [group.id]: limit + 20 }))} className="w-full text-sm font-semibold text-[#0D2240] bg-white rounded-xl border border-slate-200 py-3">Ver más ({group.rows.length - limit})</button>}
